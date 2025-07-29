@@ -4,10 +4,13 @@ import {
   FaBed, FaWifi, FaSwimmingPool, FaUtensils, 
   FaParking, FaConciergeBell, FaUser, 
   FaSignInAlt, FaSignOutAlt, FaPhone, FaEnvelope, FaMapMarkerAlt,
-  FaCalendarAlt, FaSearch
+  FaCalendarAlt, FaSearch, FaStar
 } from 'react-icons/fa';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+
+// Define API base URL
+const API_BASE_URL = 'http://localhost:5000'; // Update with your actual API URL
 
 const LandingPage = () => {
   const navigate = useNavigate();
@@ -20,6 +23,12 @@ const LandingPage = () => {
   const [dateRange, setDateRange] = useState([null, null]);
   const [startDate, endDate] = dateRange;
   const [showAvailabilityResults, setShowAvailabilityResults] = useState(false);
+  const [amenities, setAmenities] = useState([]);
+  const [apiStatus, setApiStatus] = useState({
+    roomTypes: true,
+    availability: false, // Set to true when available
+    amenities: true
+  });
 
   // Constants
   const HERO_IMAGE = "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80";
@@ -27,15 +36,6 @@ const LandingPage = () => {
     "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
     "https://images.unsplash.com/photo-1566669437685-2c5a585aded5?ixlib=rb-4.0.3&auto=format&fit=crop&w=1974&q=80",
     "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80"
-  ];
-
-  const AMENITIES = [
-    { icon: <FaWifi className="text-2xl" />, name: "Free WiFi" },
-    { icon: <FaSwimmingPool className="text-2xl" />, name: "Swimming Pool" },
-    { icon: <FaUtensils className="text-2xl" />, name: "Restaurant" },
-    { icon: <FaParking className="text-2xl" />, name: "Free Parking" },
-    { icon: <FaConciergeBell className="text-2xl" />, name: "24/7 Concierge" },
-    { icon: <FaBed className="text-2xl" />, name: "Room Service" }
   ];
 
   // Check authentication status
@@ -53,14 +53,28 @@ const LandingPage = () => {
     checkAuthStatus();
   }, []);
 
-  // Fetch room types
+  // Fetch initial data
   useEffect(() => {
-    const fetchRoomTypes = async () => {
+    const fetchInitialData = async () => {
       try {
-        const response = await fetch('http://localhost:5001/api/room-types');
-        if (!response.ok) throw new Error('Failed to fetch room types');
-        const data = await response.json();
-        setRoomTypes(data.data);
+        setLoading(true);
+        
+        // Fetch room types if API is available
+        if (apiStatus.roomTypes) {
+          const response = await fetch(`${API_BASE_URL}/api/room-types`);
+          if (!response.ok) throw new Error('Failed to fetch room types');
+          const data = await response.json();
+          setRoomTypes(data.data || []);
+        }
+        
+        // Fetch amenities if API is available
+        if (apiStatus.amenities) {
+          const response = await fetch(`${API_BASE_URL}/api/amenities`);
+          if (!response.ok) throw new Error('Failed to fetch amenities');
+          const data = await response.json();
+          setAmenities(data.data || []);
+        }
+        
       } catch (err) {
         setError(err.message);
       } finally {
@@ -68,11 +82,11 @@ const LandingPage = () => {
       }
     };
 
-    fetchRoomTypes();
-  }, []);
+    fetchInitialData();
+  }, [apiStatus]);
 
   const checkRoomAvailability = async () => {
-    if (!startDate || !endDate) return;
+    if (!startDate || !endDate || !apiStatus.availability) return;
     
     try {
       setLoading(true);
@@ -81,12 +95,12 @@ const LandingPage = () => {
       const to = endDate.toISOString().split('T')[0];
       
       const response = await fetch(
-        `http://localhost:5001/api/rooms/availability/check?from=${from}&to=${to}`
+        `${API_BASE_URL}/api/rooms/availability/check?from=${from}&to=${to}`
       );
       
       if (!response.ok) throw new Error('Failed to fetch available rooms');
       const data = await response.json();
-      setAvailableRooms(data.data);
+      setAvailableRooms(data.data || []);
       setShowAvailabilityResults(true);
     } catch (err) {
       setError(err.message);
@@ -114,15 +128,17 @@ const LandingPage = () => {
   };
 
   const getImageUrl = (imagePath, index) => {
-    if (!imagePath) {
-      return FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
-    }
+    if (!imagePath) return FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
+    if (imagePath.startsWith('http')) return imagePath;
     
     const normalizedPath = imagePath.replace(/\\/g, '/');
     const cleanPath = normalizedPath.replace(/^\/+/, '');
-    const fullUrl = `http://localhost:5001/${cleanPath}`;
-    
-    return fullUrl;
+    return `${API_BASE_URL}/${cleanPath}`;
+  };
+
+  const showAllRooms = () => {
+    setShowAvailabilityResults(false);
+    setDateRange([null, null]);
   };
 
   // Helper Components
@@ -143,7 +159,7 @@ const LandingPage = () => {
 
   const ErrorMessage = ({ error }) => (
     <div className="text-center py-12 text-red-500">
-      <p className="text-lg">Error loading rooms: {error}</p>
+      <p className="text-lg">Error loading data: {error}</p>
       <button 
         onClick={() => window.location.reload()}
         className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
@@ -154,49 +170,74 @@ const LandingPage = () => {
   );
 
   const RoomCard = ({ room, index }) => {
-    const imageUrl = getImageUrl(room.image, index);
+    const imageUrl = getImageUrl(room.image_url || room.image, index);
+    const roomType = room.type || {};
     
     return (
       <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-all duration-300">
         <div className="relative h-48 overflow-hidden">
           <img 
             src={imageUrl}
-            alt={room.name}
+            alt={room.room_number || room.name}
             className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
             loading="lazy"
             onError={(e) => {
-              console.error('Failed to load image:', imageUrl);
               e.target.src = FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
             }}
           />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
-            <p className="text-white font-semibold text-lg">{room.name}</p>
+            <p className="text-white font-semibold text-lg">
+              {room.room_number ? `Room ${room.room_number}` : room.name}
+            </p>
+            {roomType.name && <p className="text-white text-sm">{roomType.name}</p>}
           </div>
         </div>
         <div className="p-6">
-          <p className="text-gray-600 mb-4 line-clamp-2">{room.description}</p>
           <div className="flex justify-between items-center mb-4">
-            <p className="text-blue-600 font-bold text-lg">${room.price}<span className="text-sm font-normal text-gray-500">/night</span></p>
+            <p className="text-blue-600 font-bold text-lg">
+              ${roomType.base_price || room.price}
+              <span className="text-sm font-normal text-gray-500">/night</span>
+            </p>
             <div className="flex items-center text-sm text-gray-500">
               <FaBed className="mr-1" />
-              <span>{room.bed}</span>
+              <span>{roomType.bed_type || room.bed || 'Standard Bed'}</span>
             </div>
           </div>
+          
           <div className="grid grid-cols-2 gap-2 mb-4 text-sm text-gray-600">
             <div className="flex items-center">
               <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-              {room.size} sqft
+              {roomType.size || room.size || 'N/A'}
             </div>
             <div className="flex items-center">
               <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-              Sleeps {room.capacity}
+              Sleeps {roomType.capacity || room.capacity || 2}
             </div>
           </div>
+          
+          {room.status && (
+            <div className="mb-4">
+              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                room.status === 'available' ? 'bg-green-100 text-green-800' :
+                room.status === 'reserved' ? 'bg-yellow-100 text-yellow-800' :
+                room.status === 'maintenance' ? 'bg-red-100 text-red-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                {room.status.charAt(0).toUpperCase() + room.status.slice(1)}
+              </span>
+            </div>
+          )}
+          
           <button 
-            onClick={() => handleBookNow(room.id)}
-            className="w-full py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+            onClick={() => handleBookNow(room.room_id || room.id)}
+            className={`w-full py-2 rounded-md transition ${
+              (!room.status || room.status === 'available') 
+                ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+            disabled={room.status && room.status !== 'available'}
           >
-            Reserve Now
+            {(!room.status || room.status === 'available') ? 'Reserve Now' : 'Not Available'}
           </button>
         </div>
       </div>
@@ -230,14 +271,15 @@ const LandingPage = () => {
             minDate={new Date()}
             placeholderText="Check-in — Check-out"
             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={!apiStatus.availability}
           />
         </div>
         <div className="w-full md:w-auto flex items-end">
           <button
             onClick={checkRoomAvailability}
-            disabled={!startDate || !endDate}
+            disabled={!startDate || !endDate || !apiStatus.availability}
             className={`px-6 py-2 rounded-md w-full md:w-auto flex items-center justify-center gap-2 ${
-              !startDate || !endDate 
+              !startDate || !endDate || !apiStatus.availability
                 ? 'bg-gray-300 cursor-not-allowed' 
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
@@ -247,6 +289,11 @@ const LandingPage = () => {
           </button>
         </div>
       </div>
+      {!apiStatus.availability && (
+        <div className="mt-4 text-sm text-yellow-600">
+          Note: The availability check feature is currently under development
+        </div>
+      )}
       {startDate && endDate && showAvailabilityResults && (
         <p className="mt-2 text-sm text-gray-600">
           Showing availability from {startDate.toLocaleDateString()} to {endDate.toLocaleDateString()}
@@ -257,10 +304,6 @@ const LandingPage = () => {
 
   // Determine which rooms to display
   const roomsToDisplay = showAvailabilityResults ? availableRooms : roomTypes;
-  const showAllRooms = () => {
-    setShowAvailabilityResults(false);
-    setDateRange([null, null]);
-  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -380,7 +423,7 @@ const LandingPage = () => {
             <div className="grid md:grid-cols-3 gap-8">
               {roomsToDisplay.length > 0 ? (
                 roomsToDisplay.map((room, index) => (
-                  <RoomCard key={room.id} room={room} index={index} />
+                  <RoomCard key={room.room_id || room.id || index} room={room} index={index} />
                 ))
               ) : (
                 <div className="col-span-3 text-center py-12">
@@ -403,14 +446,35 @@ const LandingPage = () => {
           />
           
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {AMENITIES.map((amenity, index) => (
-              <div key={index} className="bg-white p-4 rounded-lg shadow-sm text-center border border-gray-100 hover:shadow-md transition hover:-translate-y-1">
-                <div className="text-blue-600 mb-2 flex justify-center">
-                  {amenity.icon}
+            {amenities.length > 0 ? (
+              amenities.map((amenity) => (
+                <div key={amenity.amenity_id} className="bg-white p-4 rounded-lg shadow-sm text-center border border-gray-100 hover:shadow-md transition hover:-translate-y-1">
+                  <div className="text-blue-600 mb-2 flex justify-center">
+                    {amenity.icon_url ? (
+                      <img 
+                        src={getImageUrl(amenity.icon_url)} 
+                        alt={amenity.name} 
+                        className="h-8 w-8 object-contain"
+                        onError={(e) => {
+                          e.target.src = FALLBACK_IMAGES[0];
+                          e.target.className = "h-8 w-8 object-contain";
+                        }}
+                      />
+                    ) : (
+                      <FaStar className="text-2xl" />
+                    )}
+                  </div>
+                  <h3 className="font-medium text-gray-700">{amenity.name}</h3>
+                  {amenity.category && (
+                    <p className="text-xs text-gray-500 mt-1">{amenity.category}</p>
+                  )}
                 </div>
-                <h3 className="font-medium text-gray-700">{amenity.name}</h3>
+              ))
+            ) : (
+              <div className="col-span-6 text-center py-8">
+                <p className="text-gray-500">Amenities information coming soon</p>
               </div>
-            ))}
+            )}
           </div>
         </section>
 
