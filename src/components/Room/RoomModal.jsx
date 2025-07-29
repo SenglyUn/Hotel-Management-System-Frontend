@@ -1,43 +1,79 @@
 import React from 'react';
-import { FiUpload, FiX } from 'react-icons/fi';
+import { FiUpload, FiX, FiCheck, FiPlus } from 'react-icons/fi';
 import axios from 'axios';
 import { API_BASE_URL, getImageUrl } from './utils';
 
 const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, fetchData, setError }) => {
   const [roomImagePreview, setRoomImagePreview] = React.useState(null);
-  const [roomFormData, setRoomFormData] = React.useState({
-    name: '',
-    room_type_id: '',
-    status: 'available', // Added status field
-    capacity: '',
-    price: '',
-    image: null
+  const [amenities, setAmenities] = React.useState([]);
+  const [selectedAmenities, setSelectedAmenities] = React.useState([]);
+  const [features, setFeatures] = React.useState({
+    wifi: false,
+    tv: false,
+    ac: false,
+    minibar: false
   });
 
+  const [roomFormData, setRoomFormData] = React.useState({
+    room_number: '',
+    floor: 1,
+    status: 'available',
+    type_id: '',
+    image_url: null
+  });
+
+  // Fetch amenities when component mounts
+  React.useEffect(() => {
+    const fetchAmenities = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/amenities?page=1&limit=100`);
+        setAmenities(response.data.data || []);
+      } catch (err) {
+        console.error('Error fetching amenities:', err);
+      }
+    };
+    fetchAmenities();
+  }, []);
+
+  // Initialize form data
   React.useEffect(() => {
     if (formMode === 'edit' && selectedRoom) {
       setRoomFormData({
-        name: selectedRoom.name || '',
-        room_type_id: selectedRoom.room_type?.id || selectedRoomType.id,
+        room_number: selectedRoom.room_number || '',
+        floor: selectedRoom.floor || 1,
         status: selectedRoom.status || 'available',
-        capacity: selectedRoom.capacity || selectedRoom.room_type?.capacity || '',
-        price: selectedRoom.price || selectedRoom.room_type?.price || '',
-        image: null
+        type_id: selectedRoom.type?.type_id || selectedRoomType?.type_id || '',
+        image_url: null
       });
-      setRoomImagePreview(getImageUrl(selectedRoom.image));
+      setRoomImagePreview(getImageUrl(selectedRoom.image_url));
+      
+      // Set features from existing room
+      if (selectedRoom.features) {
+        setFeatures({
+          wifi: selectedRoom.features.wifi || false,
+          tv: selectedRoom.features.tv || false,
+          ac: selectedRoom.features.ac || false,
+          minibar: selectedRoom.features.minibar || false
+        });
+      }
+      
+      // Set amenities from existing room
+      if (selectedRoom.amenities) {
+        setSelectedAmenities(selectedRoom.amenities.map(a => a.amenity_id));
+      }
     } else if (selectedRoomType) {
       setRoomFormData({
-        name: '',
-        room_type_id: selectedRoomType.id,
+        room_number: '',
+        floor: 1,
         status: 'available',
-        capacity: selectedRoomType.capacity || '',
-        price: selectedRoomType.price || '',
-        image: null
+        type_id: selectedRoomType.type_id,
+        image_url: null
       });
+      setRoomImagePreview(null);
     }
   }, [formMode, selectedRoom, selectedRoomType]);
 
-  const handleRoomInputChange = (e) => {
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
     setRoomFormData(prev => ({
       ...prev,
@@ -45,12 +81,12 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
     }));
   };
 
-  const handleRoomFileChange = (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setRoomFormData(prev => ({
         ...prev,
-        image: file
+        image_url: file
       }));
 
       const reader = new FileReader();
@@ -61,32 +97,37 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
     }
   };
 
-  const handleRoomSubmit = async (e) => {
+  const handleFeatureToggle = (feature) => {
+    setFeatures(prev => ({
+      ...prev,
+      [feature]: !prev[feature]
+    }));
+  };
+
+  const handleAmenityToggle = (amenityId) => {
+    setSelectedAmenities(prev => 
+      prev.includes(amenityId)
+        ? prev.filter(id => id !== amenityId)
+        : [...prev, amenityId]
+    );
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const formData = new FormData();
-      formData.append('name', roomFormData.name);
-      formData.append('room_type_id', roomFormData.room_type_id);
-      formData.append('status', roomFormData.status);
-      formData.append('capacity', roomFormData.capacity);
-      formData.append('price', roomFormData.price);
-      
-      if (roomFormData.image) {
-        formData.append('image', roomFormData.image);
-      }
+      const payload = {
+        room_number: roomFormData.room_number,
+        type_id: roomFormData.type_id,
+        floor: parseInt(roomFormData.floor),
+        status: roomFormData.status,
+        features: features,
+        amenities: selectedAmenities
+      };
 
       if (formMode === 'add') {
-        await axios.post(`${API_BASE_URL}/api/rooms`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
+        await axios.post(`${API_BASE_URL}/api/rooms`, payload);
       } else {
-        await axios.put(`${API_BASE_URL}/api/rooms/${selectedRoom.id}`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
+        await axios.put(`${API_BASE_URL}/api/rooms/${selectedRoom.room_id}`, payload);
       }
 
       await fetchData();
@@ -112,15 +153,28 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
           </button>
         </div>
 
-        <form onSubmit={handleRoomSubmit} className="px-6 py-4">
+        <form onSubmit={handleSubmit} className="px-6 py-4">
           <div className="space-y-4">
             <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Room Name</label>
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Room Number</label>
               <input 
                 type="text" 
-                name="name" 
-                value={roomFormData.name} 
-                onChange={handleRoomInputChange} 
+                name="room_number" 
+                value={roomFormData.room_number} 
+                onChange={handleInputChange} 
+                required
+                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
+              />
+            </div>
+
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Floor</label>
+              <input 
+                type="number" 
+                name="floor" 
+                value={roomFormData.floor} 
+                onChange={handleInputChange} 
+                min="1" 
                 required
                 className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
               />
@@ -130,12 +184,14 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
               <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Room Type ID</label>
               <input 
                 type="text" 
-                name="room_type_id" 
-                value={roomFormData.room_type_id} 
-                onChange={handleRoomInputChange} 
+                name="type_id" 
+                value={roomFormData.type_id} 
+                onChange={handleInputChange} 
                 required
-                readOnly
-                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent bg-gray-100"
+                readOnly={!!selectedRoomType}
+                className={`peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent ${
+                  selectedRoomType ? 'bg-gray-100' : ''
+                }`}
               />
             </div>
 
@@ -144,54 +200,72 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
               <select
                 name="status"
                 value={roomFormData.status}
-                onChange={handleRoomInputChange}
+                onChange={handleInputChange}
                 className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
               >
                 <option value="available">Available</option>
                 <option value="reserved">Reserved</option>
                 <option value="occupied">Occupied</option>
+                <option value="maintenance">Maintenance</option>
               </select>
             </div>
 
-            <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Capacity</label>
-              <input 
-                type="number" 
-                name="capacity" 
-                value={roomFormData.capacity} 
-                onChange={handleRoomInputChange} 
-                min="1" 
-                required
-                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
-              />
+            <div className="mt-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Features</label>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(features).map(([feature, isEnabled]) => (
+                  <button
+                    key={feature}
+                    type="button"
+                    onClick={() => handleFeatureToggle(feature)}
+                    className={`flex items-center px-3 py-2 rounded-md text-sm ${
+                      isEnabled 
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
+                    {isEnabled ? <FiCheck className="mr-2" /> : <FiPlus className="mr-2" />}
+                    {feature.charAt(0).toUpperCase() + feature.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Price per Night ($)</label>
-              <input 
-                type="number" 
-                name="price" 
-                value={roomFormData.price} 
-                onChange={handleRoomInputChange} 
-                step="0.01" 
-                min="0" 
-                required
-                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
-              />
+            <div className="mt-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Amenities</label>
+              <div className="grid grid-cols-2 gap-2">
+                {amenities.map(amenity => (
+                  <button
+                    key={amenity.amenity_id}
+                    type="button"
+                    onClick={() => handleAmenityToggle(amenity.amenity_id)}
+                    className={`flex items-center px-3 py-2 rounded-md text-sm ${
+                      selectedAmenities.includes(amenity.amenity_id)
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
+                    {selectedAmenities.includes(amenity.amenity_id) 
+                      ? <FiCheck className="mr-2" /> 
+                      : <FiPlus className="mr-2" />}
+                    {amenity.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="relative mt-6">
               <label className="block text-sm font-medium text-gray-700 mb-1">Room Image</label>
               <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                <FiUpload className="inline mr-2" /> Upload Image
+                <FiUpload className="inline mr-2" /> 
+                {roomImagePreview ? 'Change Image' : 'Upload Image'}
                 <input 
                   type="file" 
-                  name="image" 
-                  onChange={handleRoomFileChange} 
+                  name="image_url" 
+                  onChange={handleFileChange} 
                   className="hidden" 
-                  accept="image/*" 
-                  required={formMode === 'add'} 
+                  accept="image/*"
                 />
               </label>
               {roomImagePreview && (

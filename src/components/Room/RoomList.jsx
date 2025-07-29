@@ -6,10 +6,9 @@ import RoomModal from './RoomModal';
 import RoomTypeCard from './RoomTypeCard';
 import RoomCard from './RoomCard';
 
-const API_BASE_URL = 'http://localhost:5001';
+const API_BASE_URL = 'http://localhost:5000';
 const ROOM_TYPES_API = `${API_BASE_URL}/api/room-types`;
 const ROOMS_API = `${API_BASE_URL}/api/rooms`;
-const AVAILABILITY_API = `${API_BASE_URL}/api/rooms/availability/check`;
 
 const getImageUrl = (imagePath) => {
   if (!imagePath) return "https://source.unsplash.com/800x600/?hotel-room";
@@ -22,6 +21,7 @@ const getImageUrl = (imagePath) => {
 
 const RoomList = () => {
   const [roomTypes, setRoomTypes] = React.useState([]);
+  const [rooms, setRooms] = React.useState([]);
   const [selectedRoomType, setSelectedRoomType] = React.useState(null);
   const [selectedRoom, setSelectedRoom] = React.useState(null);
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -38,54 +38,60 @@ const RoomList = () => {
       
       // Fetch room types and rooms in parallel
       const [roomTypesResponse, roomsResponse] = await Promise.all([
-        axios.get(ROOM_TYPES_API),
+        axios.get(`${ROOM_TYPES_API}?page=1&limit=100`), // Adjust pagination as needed
         axios.get(ROOMS_API)
       ]);
 
-      const roomTypesData = roomTypesResponse.data.data || [];
-      const roomsData = roomsResponse.data.data.rooms || [];
+      const roomTypesData = roomTypesResponse.data.data.items || [];
+      const roomsData = roomsResponse.data.data || [];
 
       // Process room types with their rooms
       const processedRoomTypes = roomTypesData.map(roomType => {
         // Filter rooms for this type
         const typeRooms = roomsData.filter(room => 
-          room.room_type && room.room_type.id === roomType.id
+          room.type && room.type.type_id === roomType.type_id
         );
 
         // Count room statuses
         const availableCount = typeRooms.filter(r => r.status === 'available').length;
         const reservedCount = typeRooms.filter(r => r.status === 'reserved').length;
-        const occupiedCount = typeRooms.length - availableCount - reservedCount;
+        const maintenanceCount = typeRooms.filter(r => r.status === 'maintenance').length;
+        const occupiedCount = typeRooms.length - availableCount - reservedCount - maintenanceCount;
 
         return {
           ...roomType,
-          id: roomType.id,
+          id: roomType.type_id,
+          name: roomType.name,
+          price: roomType.base_price,
           capacityDisplay: `${roomType.capacity} guest${roomType.capacity > 1 ? 's' : ''}`,
-          priceDisplay: `$${roomType.price}/night`,
+          priceDisplay: `$${roomType.base_price}/night`,
           totalRooms: typeRooms.length,
           availableRooms: availableCount,
           reservedRooms: reservedCount,
           occupiedRooms: occupiedCount,
+          maintenanceRooms: maintenanceCount,
           status: availableCount > 0 ? 'Available' : 
-                 reservedCount > 0 ? 'Reserved' : 'Occupied',
-          image: getImageUrl(roomType.image),
+                 reservedCount > 0 ? 'Reserved' : 
+                 maintenanceCount > 0 ? 'Maintenance' : 'Occupied',
+          image: getImageUrl(roomType.image_url),
           rooms: typeRooms.map(room => ({
             ...room,
-            id: room.id,
-            name: room.name,
-            image: getImageUrl(room.image),
+            id: room.room_id,
+            name: room.room_number,
+            image: getImageUrl(room.image_url),
             statusDisplay: room.status ? 
               room.status.charAt(0).toUpperCase() + room.status.slice(1) : 
               'Unknown',
             room_type: {
-              ...room.room_type,
-              image: getImageUrl(room.room_type.image)
+              ...room.type,
+              image: getImageUrl(room.type.image_url)
             }
           }))
         };
       });
 
       setRoomTypes(processedRoomTypes);
+      setRooms(roomsData);
       
       // Select first room type if none selected
       if (processedRoomTypes.length > 0 && !selectedRoomType) {
@@ -228,9 +234,9 @@ const RoomList = () => {
             {filteredRoomTypes.length > 0 ? (
               filteredRoomTypes.map((roomType) => (
                 <RoomTypeCard
-                  key={roomType.id}
+                  key={roomType.type_id}
                   roomType={roomType}
-                  isSelected={selectedRoomType?.id === roomType.id}
+                  isSelected={selectedRoomType?.type_id === roomType.type_id}
                   onSelect={() => setSelectedRoomType(roomType)}
                   onEdit={() => {
                     setFormMode('edit');
@@ -279,31 +285,28 @@ const RoomList = () => {
                 <div className="space-y-3 text-sm text-gray-600">
                   <div className="flex justify-between">
                     <span className="font-medium">Room Size:</span>
-                    <span>{selectedRoomType.size}</span>
+                    <span>{selectedRoomType.size || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Bed Type:</span>
-                    <span>{selectedRoomType.bed}</span>
+                    <span>{selectedRoomType.bed_type || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Capacity:</span>
                     <span>{selectedRoomType.capacityDisplay}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="font-medium">Floor:</span>
-                    <span>{selectedRoomType.floor}</span>
+                    <span className="font-medium">Price:</span>
+                    <span className="text-blue-600 font-semibold">{selectedRoomType.priceDisplay}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Availability:</span>
                     <span>
                       {selectedRoomType.availableRooms} available • 
                       {selectedRoomType.reservedRooms} reserved • 
+                      {selectedRoomType.maintenanceRooms} maintenance • 
                       {selectedRoomType.totalRooms} total
                     </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium">Price:</span>
-                    <span className="text-blue-600 font-semibold">{selectedRoomType.priceDisplay}</span>
                   </div>
                   <div>
                     <span className="font-medium">Description:</span>
@@ -320,9 +323,9 @@ const RoomList = () => {
                   <div className="space-y-3">
                     {selectedRoomType.rooms.map(room => (
                       <RoomCard
-                        key={room.id}
+                        key={room.room_id}
                         room={room}
-                        isSelected={selectedRoom?.id === room.id}
+                        isSelected={selectedRoom?.room_id === room.room_id}
                         onSelect={() => setSelectedRoom(room)}
                         onEdit={() => {
                           setFormMode('edit');

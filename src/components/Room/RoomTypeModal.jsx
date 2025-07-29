@@ -7,50 +7,43 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
   const [imagePreview, setImagePreview] = React.useState(null);
   const [formData, setFormData] = React.useState({
     name: '',
-    size: '',
-    bed: '',
-    capacity: '',
-    floor: '',
     description: '',
-    price: '',
-    image: null
+    base_price: '',
+    capacity: '',
+    image: null  // Changed from image_url to match API
   });
-  const [existingImage, setExistingImage] = React.useState(null);
   const fileInputRef = React.useRef(null);
 
   React.useEffect(() => {
     if (formMode === 'edit' && selectedRoomType) {
       setFormData({
         name: selectedRoomType.name,
-        size: selectedRoomType.size,
-        bed: selectedRoomType.bed,
-        capacity: selectedRoomType.capacity,
-        floor: selectedRoomType.floor,
         description: selectedRoomType.description,
-        price: selectedRoomType.price,
+        base_price: selectedRoomType.base_price,
+        capacity: selectedRoomType.capacity,
         image: null
       });
-      setImagePreview(selectedRoomType.image);
-      setExistingImage(selectedRoomType.image);
+      setImagePreview(getImageUrl(selectedRoomType.image_url));
     } else {
-      // Reset form for add mode
       setFormData({
         name: '',
-        size: '',
-        bed: '',
-        capacity: '',
-        floor: '',
         description: '',
-        price: '',
+        base_price: '',
+        capacity: '',
         image: null
       });
       setImagePreview(null);
-      setExistingImage(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   }, [formMode, selectedRoomType]);
+
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return "https://source.unsplash.com/800x600/?hotel-room";
+    if (imagePath.startsWith("http")) return imagePath;
+    return `${API_BASE_URL}${imagePath}`;
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -65,7 +58,7 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
     if (file) {
       setFormData(prev => ({
         ...prev,
-        image: file
+        image: file  // Changed to match API field name
       }));
 
       const reader = new FileReader();
@@ -92,33 +85,22 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
     try {
       const formDataToSend = new FormData();
       
-      // Append all non-image fields
-      Object.entries(formData).forEach(([key, value]) => {
-        if (key !== 'image' && value !== null && value !== undefined) {
-          formDataToSend.append(key, value);
-        }
-      });
-
-      // Handle image based on mode
-      if (formMode === 'edit') {
-        if (formData.image) {
-          // New image uploaded in edit mode
-          formDataToSend.append('image', formData.image);
-        } else if (existingImage) {
-          // Keep existing image if no new image uploaded
-          formDataToSend.append('keepExistingImage', 'true');
-        }
-      } else {
-        // Add mode - require image
-        if (!formData.image) {
-          throw new Error('Please upload an image');
-        }
+      // Append all fields exactly as shown in Postman
+      formDataToSend.append('name', formData.name);
+      formDataToSend.append('description', formData.description);
+      formDataToSend.append('base_price', formData.base_price);
+      formDataToSend.append('capacity', formData.capacity);
+      
+      // Required file - field name must be 'image' to match API
+      if (formData.image) {
         formDataToSend.append('image', formData.image);
+      } else if (formMode === 'add') {
+        throw new Error('Please upload an image');
       }
 
       const endpoint = formMode === 'add' 
         ? `${API_BASE_URL}${API_PREFIX}/room-types`
-        : `${API_BASE_URL}${API_PREFIX}/room-types/${selectedRoomType.id}`;
+        : `${API_BASE_URL}${API_PREFIX}/room-types/${selectedRoomType.type_id}`;
       
       const method = formMode === 'add' ? 'post' : 'put';
 
@@ -169,11 +151,11 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
             </div>
 
             <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Size</label>
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Description</label>
               <input 
                 type="text" 
-                name="size" 
-                value={formData.size} 
+                name="description" 
+                value={formData.description} 
                 onChange={handleInputChange} 
                 required
                 className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
@@ -181,12 +163,14 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
             </div>
 
             <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Bed Type</label>
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Price per Night ($)</label>
               <input 
-                type="text" 
-                name="bed" 
-                value={formData.bed} 
+                type="number" 
+                name="base_price" 
+                value={formData.base_price} 
                 onChange={handleInputChange} 
+                step="0.01" 
+                min="0" 
                 required
                 className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
               />
@@ -204,43 +188,6 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
                 className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
               />
             </div>
-
-            <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Floor</label>
-              <input 
-                type="number" 
-                name="floor" 
-                value={formData.floor} 
-                onChange={handleInputChange} 
-                required
-                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
-              />
-            </div>
-
-            <div className="relative mt-6">
-              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Price per Night ($)</label>
-              <input 
-                type="number" 
-                name="price" 
-                value={formData.price} 
-                onChange={handleInputChange} 
-                step="0.01" 
-                min="0" 
-                required
-                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
-              />
-            </div>
-          </div>
-
-          <div className="relative mt-6">
-            <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Description</label>
-            <textarea 
-              name="description" 
-              value={formData.description} 
-              onChange={handleInputChange} 
-              rows="3"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
           </div>
 
           <div className="relative mt-6">
@@ -256,7 +203,7 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
                   onChange={handleFileChange} 
                   className="hidden" 
                   accept="image/*" 
-                  required={formMode === 'add' && !existingImage} 
+                  required={formMode === 'add'}
                 />
               </label>
               {imagePreview && (
@@ -276,7 +223,7 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
                   alt="Preview" 
                   className="h-32 object-cover rounded-md"
                   onError={(e) => {
-                    e.target.src = '/placeholder-room.jpg';
+                    e.target.src = 'https://source.unsplash.com/800x600/?hotel-room';
                     e.target.onerror = null;
                   }}
                 />
