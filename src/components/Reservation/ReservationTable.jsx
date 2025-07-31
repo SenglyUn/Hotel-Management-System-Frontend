@@ -32,28 +32,29 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
 
       {!loading && reservations.map((r) => (
         <div
-          key={r.id}
+          key={r.reservation_id}
           className="grid grid-cols-7 gap-3 px-6 py-4 border-b items-center text-[13px] text-gray-800 hover:bg-gray-50"
         >
           <div>
-            <div className="font-medium">{r.name}</div>
+            <div className="font-medium">{r.guestDetails.name}</div>
             <div className="text-[12px] text-gray-500">{r.code}</div>
           </div>
           <div className="flex flex-col">
-            {r.roomNames?.length > 0 ? (
-              r.roomNames.map((room, i) => (
-                <span key={i} className="text-[12px]">
-                  {room}
-                  {i < r.roomNames.length - 1 ? ',' : ''}
-                </span>
-              ))
+            {r.room ? (
+              <span className="text-[12px]">
+                {r.room.room_number} ({r.room.type_id})
+              </span>
             ) : (
               <span className="text-[12px] text-gray-500">None</span>
             )}
           </div>
-          <div className="text-[12px]">{r.request}</div>
+          <div className="text-[12px]">
+            {r.special_requests || r.specialRequests || 'None'}
+          </div>
           <div className="text-[12px]">{r.duration}</div>
-          <div className="text-[12px]">{formatDateRange(r.checkIn, r.checkOut)}</div>
+          <div className="text-[12px]">
+            {formatDateRange(r.check_in || r.checkIn, r.check_out || r.checkOut)}
+          </div>
           <div>
             <span
               className={`px-3 py-1 rounded-md border text-xs font-semibold ${
@@ -82,7 +83,7 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
                 actionStyles[r.status] || 'bg-gray-100 text-gray-600'
               }`}
             >
-              {r.status === 'paid' ? 'Cancel' : 'Confirm'}
+              {r.status === 'confirmed' ? 'Check In' : r.status === 'checked_in' ? 'Check Out' : 'Confirm'}
             </button>
           </div>
         </div>

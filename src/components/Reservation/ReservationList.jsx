@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ReservationFilters from './ReservationFilters';
 import ReservationTable from './ReservationTable';
 import ReservationDetail from './ReservationDetail';
@@ -7,18 +7,15 @@ import CreateReservationForm from './CreateReservationForm';
 import { statusOptions } from './constants';
 import { formatDate, calculateNights } from './utils';
 
-// Centralized API endpoints
 const API_ENDPOINTS = {
-  RESERVATIONS: 'http://localhost:5001/api/reservations',
-  GUESTS: 'http://localhost:5001/api/guests',
-  ROOMS: 'http://localhost:5001/api/rooms'
+  RESERVATIONS: 'http://localhost:5000/api/reservations',
+  GUESTS: 'http://localhost:5000/api/guests',
+  ROOMS: 'http://localhost:5000/api/rooms'
 };
 
-// Max retry attempts for failed fetches
 const MAX_RETRIES = 3;
 
 const ReservationList = () => {
-  // State management
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(statusOptions[0]);
   const [dateFilter, setDateFilter] = useState(null);
@@ -30,125 +27,134 @@ const ReservationList = () => {
   const [error, setError] = useState(null);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [viewMode, setViewMode] = useState('list');
-  const [retryCount, setRetryCount] = useState(0);
+  const retryCountRef = useRef(0);
+  const isMountedRef = useRef(true);
 
-  // Normalize API data
   const normalizeData = (data) => {
     if (!data || !data.success) return [];
+    if (data.data.reservations) {
+      return data.data.reservations;
+    }
     return Array.isArray(data.data) ? data.data : [data.data];
   };
 
-  // Process reservation data with room and guest details
-  const processReservations = useCallback((reservationsData, guestsData, roomsData) => {
-    const guestMap = guestsData.reduce((map, guest) => {
-      map[guest.id] = guest;
-      return map;
-    }, {});
-
-    const roomMap = roomsData.reduce((map, room) => {
-      map[room.id] = room;
-      return map;
-    }, {});
-
+  const processReservations = useCallback((reservationsData) => {
     return reservationsData.map(reservation => {
-      const guest = guestMap[reservation.guestId] || {};
-      const nights = calculateNights(reservation.checkInDate, reservation.checkOutDate) || 1;
+      const guest = reservation.guest || {};
+      const room = reservation.room || {};
+      const nights = calculateNights(reservation.check_in, reservation.check_out) || 1;
       
-      const roomDetails = (reservation.roomIds || []).map((roomId, index) => {
-        const roomInfo = roomMap[roomId] || {};
-        const price = parseFloat(roomInfo.price || reservation.roomPrices?.[index] || 0);
-        return {
-          id: roomId,
-          name: roomInfo.name || reservation.roomNames?.[index] || `Room ${roomId}`,
-          type: roomInfo.type || 'Standard',
-          price,
-          total: price * nights
-        };
-      });
+      const roomDetails = [{
+        id: room.room_id || reservation.room_id,
+        name: room.room_number || `Room ${reservation.room_id}`,
+        type: room.type_id || 'Standard',
+        price: 0,
+        total: 0
+      }];
 
-      const roomCharges = roomDetails.reduce((sum, room) => sum + room.total, 0);
-      const tax = parseFloat(reservation.tax) || 0;
-      const discount = parseFloat(reservation.discount) || 0;
-      const totalAmount = roomCharges + tax - discount;
+      const totalAmount = parseFloat(reservation.total_amount) || 0;
+      const paidAmount = parseFloat(reservation.paid_amount) || 0;
+      const balance = totalAmount - paidAmount;
 
       return {
         ...reservation,
-        id: reservation.id || 'N/A',
-        guestId: reservation.guestId || 'N/A',
+        id: reservation.reservation_id,
+        guestId: reservation.guest_id,
         guestDetails: {
-          name: guest.name || `Guest #${reservation.guestId || 'N/A'}`,
+          name: `${guest.first_name || ''} ${guest.last_name || ''}`.trim(),
           email: guest.email || 'N/A',
           phone: guest.phone || 'N/A',
-          address: guest.address || 'N/A',
-          nationalId: guest.nationalId || 'N/A'
+          address: `${guest.address || ''}, ${guest.city || ''}, ${guest.country || ''}`.trim(),
+          nationalId: guest.id_number || 'N/A'
         },
-        code: `R-${(reservation.id || '').toString().padStart(6, '0')}`,
-        room: roomDetails.map(r => r.name).join(', ') || 'None',
+        code: `R-${reservation.reservation_id.toString().padStart(6, '0')}`,
+        roomNumber: room.room_number || 'N/A', // This will be used for the Room column
         roomDetails,
         duration: `${nights} nights`,
-        checkIn: reservation.checkInDate,
-        checkOut: reservation.checkOutDate,
-        status: (reservation.paymentStatus || 'pending').toLowerCase(),
+        checkIn: reservation.check_in,
+        checkOut: reservation.check_out,
+        status: reservation.status.toLowerCase(),
         totalAmount,
-        tax,
-        discount,
-        paymentMethod: reservation.paymentMethod || 'Credit Card',
-        createdAt: reservation.reservationDate || new Date().toISOString(),
-        formattedCheckIn: formatDate(reservation.checkInDate),
-        formattedCheckOut: formatDate(reservation.checkOutDate),
-        formattedCreatedAt: formatDate(reservation.reservationDate || new Date().toISOString())
+        paidAmount,
+        balance,
+        paymentMethod: 'Credit Card',
+        createdAt: reservation.created_at,
+        formattedCheckIn: formatDate(reservation.check_in),
+        formattedCheckOut: formatDate(reservation.check_out),
+        formattedCreatedAt: formatDate(reservation.created_at),
+        adults: reservation.adults || 1,
+        children: reservation.children || 0,
+        specialRequests: reservation.special_requests || 'None',
+        reservationGuests: reservation.reservation_guests || []
       };
     });
   }, []);
 
-  // Fetch all data with retry logic
+  const fetchData = useCallback(async (endpoint) => {
+    const response = await fetch(endpoint);
+    if (!response.ok) throw new Error(`Failed to fetch ${endpoint}`);
+    return response.json();
+  }, []);
+
   const fetchAllData = useCallback(async () => {
+    if (!isMountedRef.current) return;
+
     setLoading(true);
     setError(null);
-    
+
     try {
-      const [reservationsRes, guestsRes, roomsRes] = await Promise.all([
-        fetch(API_ENDPOINTS.RESERVATIONS),
-        fetch(API_ENDPOINTS.GUESTS),
-        fetch(API_ENDPOINTS.ROOMS)
-      ]);
-
-      if (!reservationsRes.ok) throw new Error('Failed to fetch reservations');
-      if (!guestsRes.ok) throw new Error('Failed to fetch guests');
-      if (!roomsRes.ok) throw new Error('Failed to fetch rooms');
-
-      const [reservationsData, guestsData, roomsData] = await Promise.all([
-        reservationsRes.json(),
-        guestsRes.json(),
-        roomsRes.json()
-      ]);
-
-      const normalizedGuests = normalizeData(guestsData);
-      const normalizedRooms = normalizeData(roomsData);
+      const reservationsData = await fetchData(API_ENDPOINTS.RESERVATIONS);
       const normalizedReservations = normalizeData(reservationsData);
 
-      setGuests(normalizedGuests);
-      setRooms(normalizedRooms);
-      setReservations(processReservations(normalizedReservations, normalizedGuests, normalizedRooms));
-      setRetryCount(0); // Reset retry count on success
+      // Extract unique guests and rooms from reservations
+      const uniqueGuests = [];
+      const uniqueRooms = [];
+      const guestIds = new Set();
+      const roomIds = new Set();
+
+      normalizedReservations.forEach(reservation => {
+        if (reservation.guest && !guestIds.has(reservation.guest.guest_id)) {
+          guestIds.add(reservation.guest.guest_id);
+          uniqueGuests.push(reservation.guest);
+        }
+        if (reservation.room && !roomIds.has(reservation.room.room_id)) {
+          roomIds.add(reservation.room.room_id);
+          uniqueRooms.push(reservation.room);
+        }
+      });
+
+      if (isMountedRef.current) {
+        setGuests(uniqueGuests);
+        setRooms(uniqueRooms);
+        setReservations(processReservations(normalizedReservations));
+        retryCountRef.current = 0;
+      }
     } catch (err) {
       console.error("Fetch error:", err);
+      if (!isMountedRef.current) return;
+
       setError(err.message || 'Failed to fetch data');
       
-      if (retryCount < MAX_RETRIES) {
-        setRetryCount(prev => prev + 1);
-        setTimeout(() => fetchAllData(), 3000);
+      if (retryCountRef.current < MAX_RETRIES) {
+        retryCountRef.current += 1;
+        setTimeout(fetchAllData, 3000);
       }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  }, [processReservations, retryCount]);
+  }, [fetchData, processReservations]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchAllData();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [fetchAllData]);
 
-  // Create new reservation
   const handleAddReservation = async (newReservation) => {
     if (!newReservation) return;
     
@@ -160,31 +166,21 @@ const ReservationList = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          guestId: newReservation.guestId,
-          checkInDate: newReservation.checkIn,
-          checkOutDate: newReservation.checkOut,
-          roomIds: newReservation.roomIds || [],
-          roomNames: newReservation.roomNames || [],
-          roomPrices: newReservation.roomPrices || [],
-          paymentStatus: newReservation.status || 'pending',
-          paymentMethod: newReservation.paymentMethod || 'Credit Card',
-          specialRequests: newReservation.request || 'None',
-          tax: newReservation.tax || 0,
-          discount: newReservation.discount || 0,
-          reservationDate: new Date().toISOString()
+          guest_id: newReservation.guestId,
+          check_in: newReservation.checkIn,
+          check_out: newReservation.checkOut,
+          room_id: newReservation.roomIds?.[0] || null,
+          adults: newReservation.adults || 1,
+          children: newReservation.children || 0,
+          status: newReservation.status || 'confirmed',
+          special_requests: newReservation.specialRequests || 'None'
         })
       });
 
       if (!response.ok) throw new Error('Failed to create reservation');
-      const result = await response.json();
-
-      if (!result.success) throw new Error(result.message || 'Failed to create reservation');
-
-      // Refetch data to ensure consistency
-      await fetchAllData();
       
+      await fetchAllData();
       setShowForm(false);
-      setError(null);
     } catch (err) {
       console.error("Create reservation error:", err);
       setError(err.message || 'Failed to create reservation');
@@ -193,7 +189,6 @@ const ReservationList = () => {
     }
   };
 
-  // View management
   const handleViewDetails = (reservation) => {
     setSelectedReservation(reservation);
     setViewMode('detail');
@@ -208,13 +203,12 @@ const ReservationList = () => {
     setSelectedReservation(null);
   };
 
-  // Memoized filtered reservations
   const filteredReservations = useMemo(() => {
     return reservations.filter((reservation) => {
       const searchFields = [
         reservation.guestDetails?.name, 
         reservation.code, 
-        reservation.room, 
+        reservation.roomNumber, 
         reservation.guestDetails?.email, 
         reservation.guestDetails?.phone
       ].join(' ').toLowerCase();
@@ -234,7 +228,6 @@ const ReservationList = () => {
     });
   }, [reservations, searchTerm, statusFilter, dateFilter]);
 
-  // Render different views based on viewMode
   const renderView = () => {
     switch (viewMode) {
       case 'detail':
@@ -302,7 +295,7 @@ const ReservationList = () => {
         <div className="text-center py-8 text-gray-500">Loading reservations...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-600">
-          {error} {retryCount < MAX_RETRIES && '(Auto-retrying...)'}
+          {error} {retryCountRef.current < MAX_RETRIES && '(Auto-retrying...)'}
         </div>
       ) : viewMode === 'list' && filteredReservations.length === 0 ? (
         <div className="text-center py-8 text-gray-500">
