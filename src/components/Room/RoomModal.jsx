@@ -1,10 +1,9 @@
 import React from 'react';
-import { FiUpload, FiX, FiCheck, FiPlus } from 'react-icons/fi';
+import { FiX, FiCheck, FiPlus } from 'react-icons/fi';
 import axios from 'axios';
-import { API_BASE_URL, getImageUrl } from './utils';
+import { API_BASE_URL } from './utils';
 
 const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, fetchData, setError }) => {
-  const [roomImagePreview, setRoomImagePreview] = React.useState(null);
   const [amenities, setAmenities] = React.useState([]);
   const [selectedAmenities, setSelectedAmenities] = React.useState([]);
   const [features, setFeatures] = React.useState({
@@ -18,8 +17,7 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
     room_number: '',
     floor: 1,
     status: 'available',
-    type_id: '',
-    image_url: null
+    type_id: ''
   });
 
   // Fetch amenities when component mounts
@@ -42,10 +40,8 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
         room_number: selectedRoom.room_number || '',
         floor: selectedRoom.floor || 1,
         status: selectedRoom.status || 'available',
-        type_id: selectedRoom.type?.type_id || selectedRoomType?.type_id || '',
-        image_url: null
+        type_id: selectedRoom.type?.type_id || selectedRoomType?.type_id || ''
       });
-      setRoomImagePreview(getImageUrl(selectedRoom.image_url));
       
       // Set features from existing room
       if (selectedRoom.features) {
@@ -66,10 +62,8 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
         room_number: '',
         floor: 1,
         status: 'available',
-        type_id: selectedRoomType.type_id,
-        image_url: null
+        type_id: selectedRoomType.type_id
       });
-      setRoomImagePreview(null);
     }
   }, [formMode, selectedRoom, selectedRoomType]);
 
@@ -79,22 +73,6 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
       ...prev,
       [name]: value
     }));
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setRoomFormData(prev => ({
-        ...prev,
-        image_url: file
-      }));
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setRoomImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
   const handleFeatureToggle = (feature) => {
@@ -253,34 +231,6 @@ const RoomModal = ({ formMode, selectedRoom, selectedRoomType, setShowRoomForm, 
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="relative mt-6">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Room Image</label>
-              <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                <FiUpload className="inline mr-2" /> 
-                {roomImagePreview ? 'Change Image' : 'Upload Image'}
-                <input 
-                  type="file" 
-                  name="image_url" 
-                  onChange={handleFileChange} 
-                  className="hidden" 
-                  accept="image/*"
-                />
-              </label>
-              {roomImagePreview && (
-                <div className="mt-2">
-                  <img 
-                    src={roomImagePreview} 
-                    alt="Preview" 
-                    className="h-32 object-cover rounded-md"
-                    onError={(e) => {
-                      e.target.src = 'https://source.unsplash.com/800x600/?hotel-room';
-                      e.target.onerror = null;
-                    }}
-                  />
-                </div>
-              )}
             </div>
           </div>
 
