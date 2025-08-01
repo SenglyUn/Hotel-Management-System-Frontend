@@ -68,7 +68,7 @@ const ReservationList = () => {
           nationalId: guest.id_number || 'N/A'
         },
         code: `R-${reservation.reservation_id.toString().padStart(6, '0')}`,
-        roomNumber: room.room_number || 'N/A', // This will be used for the Room column
+        roomNumber: room.room_number || 'N/A',
         roomDetails,
         duration: `${nights} nights`,
         checkIn: reservation.check_in,
@@ -159,7 +159,43 @@ const ReservationList = () => {
     if (!newReservation) return;
     
     setLoading(true);
+    setError(null);
+    
     try {
+      // Optimistically update the UI
+      const optimisticReservation = {
+        ...newReservation,
+        id: `temp-${Date.now()}`,
+        status: 'confirmed',
+        createdAt: new Date().toISOString(),
+        formattedCreatedAt: formatDate(new Date()),
+        formattedCheckIn: formatDate(newReservation.checkIn),
+        formattedCheckOut: formatDate(newReservation.checkOut),
+        guestDetails: {
+          name: newReservation.guestName,
+          email: newReservation.guestDetails?.email || 'N/A',
+          phone: newReservation.guestDetails?.phone || 'N/A',
+          address: 'N/A',
+          nationalId: 'N/A'
+        },
+        roomNumber: newReservation.roomNumber,
+        duration: `${calculateNights(newReservation.checkIn, newReservation.checkOut)} nights`,
+        totalAmount: 0,
+        paidAmount: 0,
+        balance: 0,
+        paymentMethod: 'Credit Card',
+        roomDetails: [{
+          id: newReservation.roomId,
+          name: newReservation.roomNumber,
+          type: 'Standard',
+          price: 0,
+          total: 0
+        }]
+      };
+
+      setReservations(prev => [optimisticReservation, ...prev]);
+      
+      // Make the actual API call
       const response = await fetch(API_ENDPOINTS.RESERVATIONS, {
         method: 'POST',
         headers: {
@@ -169,20 +205,38 @@ const ReservationList = () => {
           guest_id: newReservation.guestId,
           check_in: newReservation.checkIn,
           check_out: newReservation.checkOut,
-          room_id: newReservation.roomIds?.[0] || null,
+          room_id: newReservation.roomId,
           adults: newReservation.adults || 1,
           children: newReservation.children || 0,
           status: newReservation.status || 'confirmed',
-          special_requests: newReservation.specialRequests || 'None'
+          special_requests: newReservation.specialRequests || 'None',
+          additional_guests: newReservation.additionalGuests || []
         })
       });
 
-      if (!response.ok) throw new Error('Failed to create reservation');
+      if (!response.ok) {
+        throw new Error('Failed to create reservation');
+      }
+
+      const result = await response.json();
       
-      await fetchAllData();
+      // Replace the optimistic update with the actual data
+      setReservations(prev => {
+        const updated = [...prev];
+        const index = updated.findIndex(r => r.id === optimisticReservation.id);
+        if (index !== -1) {
+          updated[index] = processReservations([result.data])[0];
+        }
+        return updated;
+      });
+
       setShowForm(false);
     } catch (err) {
       console.error("Create reservation error:", err);
+      
+      // Rollback the optimistic update
+      setReservations(prev => prev.filter(r => r.id !== `temp-${Date.now()}`));
+      
       setError(err.message || 'Failed to create reservation');
     } finally {
       setLoading(false);
