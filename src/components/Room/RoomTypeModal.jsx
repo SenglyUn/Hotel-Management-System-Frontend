@@ -10,7 +10,9 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
     description: '',
     base_price: '',
     capacity: '',
-    image: null  // Changed from image_url to match API
+    size: '',
+    bed_type: '',
+    image: null
   });
   const fileInputRef = React.useRef(null);
 
@@ -21,6 +23,8 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
         description: selectedRoomType.description,
         base_price: selectedRoomType.base_price,
         capacity: selectedRoomType.capacity,
+        size: selectedRoomType.size || '',
+        bed_type: selectedRoomType.bed_type || '',
         image: null
       });
       setImagePreview(getImageUrl(selectedRoomType.image_url));
@@ -30,6 +34,8 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
         description: '',
         base_price: '',
         capacity: '',
+        size: '',
+        bed_type: '',
         image: null
       });
       setImagePreview(null);
@@ -58,7 +64,7 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
     if (file) {
       setFormData(prev => ({
         ...prev,
-        image: file  // Changed to match API field name
+        image: file
       }));
 
       const reader = new FileReader();
@@ -85,13 +91,13 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
     try {
       const formDataToSend = new FormData();
       
-      // Append all fields exactly as shown in Postman
       formDataToSend.append('name', formData.name);
       formDataToSend.append('description', formData.description);
       formDataToSend.append('base_price', formData.base_price);
       formDataToSend.append('capacity', formData.capacity);
+      formDataToSend.append('size', formData.size);
+      formDataToSend.append('bed_type', formData.bed_type);
       
-      // Required file - field name must be 'image' to match API
       if (formData.image) {
         formDataToSend.append('image', formData.image);
       } else if (formMode === 'add') {
@@ -185,6 +191,28 @@ const RoomTypeModal = ({ formMode, selectedRoomType, setShowAddForm, fetchData, 
                 onChange={handleInputChange} 
                 min="1" 
                 required
+                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
+              />
+            </div>
+
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Size (sqm)</label>
+              <input 
+                type="text" 
+                name="size" 
+                value={formData.size} 
+                onChange={handleInputChange} 
+                className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
+              />
+            </div>
+
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs text-gray-600">Bed Type</label>
+              <input 
+                type="text" 
+                name="bed_type" 
+                value={formData.bed_type} 
+                onChange={handleInputChange} 
                 className="peer w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-transparent"
               />
             </div>

@@ -5,12 +5,48 @@ import {
   FaSnowflake, FaGlassMartiniAlt, FaUser, 
   FaSignInAlt, FaSignOutAlt, FaPhone, FaEnvelope, FaMapMarkerAlt,
   FaCalendarAlt, FaSearch, FaStar, FaRegSnowflake, FaRegStar,
-  FaUtensils, FaConciergeBell, FaParking  // These were missing
+  FaUtensils, FaConciergeBell, FaParking,
+  FaCheck, FaTimes // Added missing icons
 } from 'react-icons/fa';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const API_BASE_URL = 'http://localhost:5000';
+
+const getImageUrl = (imagePath) => {
+  if (!imagePath) return null;
+  
+  // Handle absolute URLs
+  if (imagePath.startsWith('http')) return imagePath;
+  
+  // Handle local server paths (both with and without leading slash)
+  if (imagePath.startsWith('/uploads') || imagePath.startsWith('uploads')) {
+    // Ensure we have exactly one leading slash
+    const normalizedPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
+    return `${API_BASE_URL}${normalizedPath}`;
+  }
+  
+  // Handle other relative paths
+  return `${API_BASE_URL}/${imagePath.replace(/^\/+/, '')}`;
+};
+
+// Add LoadingSkeleton component
+const LoadingSkeleton = () => (
+  <div className="grid md:grid-cols-3 gap-6">
+    {[...Array(6)].map((_, i) => (
+      <div key={i} className="bg-white rounded-xl shadow-md overflow-hidden animate-pulse h-full">
+        <div className="h-56 bg-gray-200"></div>
+        <div className="p-5 space-y-4">
+          <div className="h-5 bg-gray-200 rounded w-3/4"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+          <div className="h-4 bg-gray-200 rounded"></div>
+          <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+          <div className="h-10 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 const LandingPage = () => {
   const navigate = useNavigate();
@@ -27,14 +63,6 @@ const LandingPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Images
-  const HERO_IMAGE = "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80";
-  const FALLBACK_IMAGES = [
-    "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1566669437685-2c5a585aded5?ixlib=rb-4.0.3&auto=format&fit=crop&w=1974&q=80",
-    "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80"
-  ];
-
   // Check auth status
   useEffect(() => {
     const token = localStorage.getItem('authToken');
@@ -45,29 +73,57 @@ const LandingPage = () => {
     }
   }, []);
 
-  // Fetch data
+  // Fetch data with proper image handling
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
+        setError(null);
         
-        // Fetch rooms
-        const roomsRes = await fetch(`${API_BASE_URL}/api/rooms?page=${currentPage}`);
+        const [roomsRes, typesRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/rooms?page=${currentPage}`),
+          fetch(`${API_BASE_URL}/api/room-types?page=1&limit=10`)
+        ]);
+
         if (!roomsRes.ok) throw new Error('Failed to fetch rooms');
+        if (!typesRes.ok) throw new Error('Failed to fetch room types');
+
         const roomsData = await roomsRes.json();
-        setRooms(roomsData.data);
-        setFilteredRooms(roomsData.data);
+        const typesData = await typesRes.json();
+
+        // Create a map of room types for quick lookup
+        const roomTypesMap = {};
+        typesData.data.items.forEach(type => {
+          roomTypesMap[type.type_id] = {
+            ...type,
+            image: getImageUrl(type.image_url)
+          };
+        });
+
+        // Process rooms with their images
+        const processedRooms = roomsData.data.map(room => {
+          const roomType = roomTypesMap[room.type?.type_id] || room.type;
+          
+          return {
+            ...room,
+            id: room.room_id,
+            name: room.room_number,
+            image: getImageUrl(room.image_url) || roomType?.image,
+            type: roomType,
+            statusDisplay: room.status ? 
+              room.status.charAt(0).toUpperCase() + room.status.slice(1) : 
+              'Unknown'
+          };
+        });
+
+        setRooms(processedRooms);
+        setFilteredRooms(processedRooms);
+        setRoomTypes(typesData.data.items);
         setTotalPages(roomsData.pagination?.total_pages || 1);
         
-        // Fetch room types
-        const typesRes = await fetch(`${API_BASE_URL}/api/room-types`);
-        if (typesRes.ok) {
-          const typesData = await typesRes.json();
-          setRoomTypes(typesData.data.items);
-        }
-        
       } catch (err) {
-        setError(err.message);
+        console.error('Error fetching data:', err);
+        setError(err.message || 'Failed to fetch data');
       } finally {
         setLoading(false);
       }
@@ -76,11 +132,14 @@ const LandingPage = () => {
     fetchData();
   }, [currentPage]);
 
+  // Define filterRooms function
   const filterRooms = () => {
     let result = [...rooms];
     
     if (selectedRoomType) {
-      result = result.filter(room => room.type.type_id === parseInt(selectedRoomType));
+      result = result.filter(room => 
+        room.type?.type_id === parseInt(selectedRoomType)
+      );
     }
     
     if (startDate && endDate) {
@@ -94,12 +153,6 @@ const LandingPage = () => {
     filterRooms();
   }, [selectedRoomType, startDate, endDate, rooms]);
 
-  const getImageUrl = (imagePath, index) => {
-    if (!imagePath) return FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
-    if (imagePath.startsWith('http')) return imagePath;
-    return `${API_BASE_URL}${imagePath.startsWith('//') ? imagePath.substring(1) : imagePath}`;
-  };
-
   const renderFeatureIcon = (feature, value) => {
     const icons = {
       wifi: <FaWifi className={value ? "text-blue-500" : "text-gray-300"} />,
@@ -110,121 +163,127 @@ const LandingPage = () => {
     return icons[feature] || null;
   };
 
-  const RoomCard = ({ room, index }) => (
-    <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 h-full flex flex-col">
-      <div className="relative h-56 overflow-hidden">
-        <img 
-          src={getImageUrl(room.type?.image_url, index)}
-          alt={`Room ${room.room_number}`}
-          className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-          loading="lazy"
-          onError={(e) => {
-            e.target.src = FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
-          }}
-        />
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-          <div className="flex justify-between items-end">
-            <div>
-              <h3 className="text-white font-bold text-xl">Room {room.room_number}</h3>
-              <p className="text-white/90">{room.type?.name}</p>
-            </div>
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-              room.status === 'available' ? 'bg-green-100 text-green-800' :
-              room.status === 'maintenance' ? 'bg-red-100 text-red-800' :
-              'bg-yellow-100 text-yellow-800'
-            }`}>
-              {room.status.charAt(0).toUpperCase() + room.status.slice(1)}
-            </span>
-          </div>
-        </div>
-      </div>
-      
-      <div className="p-5 flex-grow flex flex-col">
-        <div className="flex-grow">
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <p className="text-gray-600 text-sm">{room.type?.description}</p>
-              <div className="flex items-center mt-1 text-sm text-gray-500">
-                <FaBed className="mr-1" />
-                <span>{room.type?.bed_type || 'Standard Bed'}</span>
-              </div>
-            </div>
-            <p className="text-blue-600 font-bold text-xl whitespace-nowrap">
-              ${room.type?.base_price}
-              <span className="text-sm font-normal text-gray-500"> /night</span>
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
-            <div className="flex items-center">
-              <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-              {room.type?.size || 'N/A'}
-            </div>
-            <div className="flex items-center">
-              <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-              Sleeps {room.type?.capacity}
-            </div>
-          </div>
-          
-          {room.features && (
-            <div className="mb-4">
-              <p className="text-sm font-medium text-gray-700 mb-2">Features:</p>
-              <div className="flex space-x-3">
-                {Object.entries(room.features).map(([feature, value]) => (
-                  <div key={feature} className="flex flex-col items-center">
-                    {renderFeatureIcon(feature, value)}
-                    <span className="text-xs mt-1 capitalize">{feature}</span>
-                  </div>
-                ))}
-              </div>
+  const RoomCard = ({ room, index }) => {
+    // Use room image if available, otherwise use room type image
+    const roomImage = room.image || room.type?.image;
+    const roomTypeName = room.type?.name || 'Standard Room';
+
+    return (
+      <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 h-full flex flex-col">
+        <div className="relative h-56 overflow-hidden">
+          {roomImage ? (
+            <img 
+              src={roomImage}
+              alt={`${roomTypeName} Room`}
+              className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
+              loading="lazy"
+              crossOrigin="anonymous"
+              onError={(e) => {
+                e.target.src = 'https://source.unsplash.com/random/800x600/?hotel-room';
+                e.target.onerror = null;
+              }}
+            />
+          ) : (
+            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+              <span className="text-gray-500">Image not available</span>
             </div>
           )}
-          
-          {room.amenities?.length > 0 && (
-            <div className="mb-4">
-              <p className="text-sm font-medium text-gray-700 mb-1">Amenities:</p>
-              <div className="flex flex-wrap gap-1">
-                {room.amenities.map(amenity => (
-                  <span key={amenity.amenity_id} className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">
-                    {amenity.name}
-                  </span>
-                ))}
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+            <div className="flex justify-between items-end">
+              <div>
+                <h3 className="text-white font-bold text-xl">Room {room.room_number}</h3>
+                <p className="text-white/90">{roomTypeName}</p>
               </div>
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                room.status === 'available' ? 'bg-green-100 text-green-800' :
+                room.status === 'maintenance' ? 'bg-red-100 text-red-800' :
+                'bg-yellow-100 text-yellow-800'
+              }`}>
+                {room.statusDisplay}
+              </span>
             </div>
-          )}
+          </div>
         </div>
         
-        <button 
-          onClick={() => navigate(`/book?room=${room.room_id}`)}
-          disabled={room.status !== 'available'}
-          className={`w-full py-2 rounded-lg font-medium transition ${
-            room.status === 'available' 
-              ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-              : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          {room.status === 'available' ? 'Book Now' : 'Not Available'}
-        </button>
-      </div>
-    </div>
-  );
-
-  const LoadingSkeleton = () => (
-    <div className="grid md:grid-cols-3 gap-6">
-      {[...Array(6)].map((_, i) => (
-        <div key={i} className="bg-white rounded-xl shadow-md overflow-hidden animate-pulse h-full">
-          <div className="h-56 bg-gray-200"></div>
-          <div className="p-5 space-y-4">
-            <div className="h-5 bg-gray-200 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-            <div className="h-4 bg-gray-200 rounded"></div>
-            <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-            <div className="h-10 bg-gray-200 rounded"></div>
+        <div className="p-5 flex-grow flex flex-col">
+          <div className="flex-grow">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <p className="text-gray-600 text-sm">{room.type?.description || 'Comfortable room'}</p>
+                <div className="flex items-center mt-1 text-sm text-gray-500">
+                  <FaBed className="mr-1" />
+                  <span>{room.type?.bed_type || 'Standard Bed'}</span>
+                </div>
+              </div>
+              <p className="text-blue-600 font-bold text-xl whitespace-nowrap">
+                ${room.type?.base_price || '0'}
+                <span className="text-sm font-normal text-gray-500"> /night</span>
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+              <div className="flex items-center">
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                {room.type?.size || 'N/A'}
+              </div>
+              <div className="flex items-center">
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                Sleeps {room.type?.capacity || '1'}
+              </div>
+            </div>
+            
+            {room.features && (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">Features:</p>
+                <div className="flex space-x-3">
+                  {Object.entries(room.features).map(([feature, value]) => (
+                    <div key={feature} className="flex flex-col items-center">
+                      {value ? (
+                        <>
+                          <FaCheck className="text-green-500" />
+                          <span className="text-xs mt-1 capitalize">{feature}</span>
+                        </>
+                      ) : (
+                        <>
+                          <FaTimes className="text-gray-300" />
+                          <span className="text-xs mt-1 capitalize text-gray-400">{feature}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {room.amenities?.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-gray-700 mb-1">Amenities:</p>
+                <div className="flex flex-wrap gap-1">
+                  {room.amenities.map(amenity => (
+                    <span key={amenity.amenity_id} className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">
+                      {amenity.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+          
+          <button 
+            onClick={() => navigate(`/book?room=${room.room_id}`)}
+            disabled={room.status !== 'available'}
+            className={`w-full py-2 rounded-lg font-medium transition ${
+              room.status === 'available' 
+                ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            {room.status === 'available' ? 'Book Now' : 'Not Available'}
+          </button>
         </div>
-      ))}
-    </div>
-  );
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -288,10 +347,14 @@ const LandingPage = () => {
       <section className="relative bg-gray-900 text-white h-96 md:h-[500px]">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-900/70 to-blue-800/50"></div>
         <img 
-          src={HERO_IMAGE} 
+          src="https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-1.2.1&auto=format&fit=crop&w=1600&h=900"
           alt="Luxury hotel rooms" 
           className="w-full h-full object-cover"
           loading="lazy"
+          crossOrigin="anonymous"
+          onError={(e) => {
+            e.target.src = 'https://source.unsplash.com/random/1600x900/?hotel';
+          }}
         />
         <div className="container mx-auto px-4 absolute inset-0 flex flex-col justify-center items-center text-center">
           <h2 className="text-3xl md:text-5xl font-bold mb-4">Experience Luxury Redefined</h2>
@@ -417,166 +480,7 @@ const LandingPage = () => {
             </>
           )}
         </section>
-
-        {/* Amenities */}
-        <section id="amenities" className="mb-16">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-800 mb-4">Hotel Amenities</h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Enjoy our premium facilities designed for your comfort and convenience
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center hover:shadow-md transition hover:-translate-y-1">
-              <div className="text-blue-600 mb-4 flex justify-center">
-                <FaSwimmingPool className="text-4xl" />
-              </div>
-              <h3 className="font-bold text-gray-800 mb-2">Infinity Pool</h3>
-              <p className="text-gray-600 text-sm">Stunning rooftop pool with panoramic city views</p>
-            </div>
-            
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center hover:shadow-md transition hover:-translate-y-1">
-              <div className="text-blue-600 mb-4 flex justify-center">
-                <FaUtensils className="text-4xl" />
-              </div>
-              <h3 className="font-bold text-gray-800 mb-2">Gourmet Restaurant</h3>
-              <p className="text-gray-600 text-sm">International cuisine prepared by award-winning chefs</p>
-            </div>
-            
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center hover:shadow-md transition hover:-translate-y-1">
-              <div className="text-blue-600 mb-4 flex justify-center">
-                <FaConciergeBell className="text-4xl" />
-              </div>
-              <h3 className="font-bold text-gray-800 mb-2">24/7 Concierge</h3>
-              <p className="text-gray-600 text-sm">Personalized service for all your needs</p>
-            </div>
-            
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center hover:shadow-md transition hover:-translate-y-1">
-              <div className="text-blue-600 mb-4 flex justify-center">
-                <FaParking className="text-4xl" />
-              </div>
-              <h3 className="font-bold text-gray-800 mb-2">Valet Parking</h3>
-              <p className="text-gray-600 text-sm">Complimentary parking with security</p>
-            </div>
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section className="mb-16 bg-gradient-to-r from-blue-600 to-blue-800 text-white rounded-xl p-12 text-center">
-          <h2 className="text-3xl font-bold mb-4">Ready for an Unforgettable Stay?</h2>
-          <p className="text-xl mb-8 max-w-2xl mx-auto">
-            Book your perfect room today and experience luxury hospitality at its finest
-          </p>
-          <div className="flex justify-center gap-4">
-            <button 
-              onClick={() => navigate(isLoggedIn ? '/book' : '/signup')} 
-              className="px-8 py-3 bg-white text-blue-700 rounded-lg font-bold hover:bg-gray-100 transition"
-            >
-              Book Now
-            </button>
-            <button 
-              onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-8 py-3 border-2 border-white rounded-lg hover:bg-white/10 transition font-medium"
-            >
-              Contact Us
-            </button>
-          </div>
-        </section>
-
-        {/* Contact */}
-        <section id="contact" className="mb-16">
-          <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm p-8">
-            <div className="text-center mb-12">
-              <h2 className="text-3xl font-bold text-gray-800 mb-4">Contact Us</h2>
-              <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                Our friendly team is here to help with any questions about your stay
-              </p>
-            </div>
-            
-            <div className="grid md:grid-cols-2 gap-8">
-              <div className="space-y-6">
-                <div className="flex items-start space-x-4">
-                  <FaMapMarkerAlt className="text-blue-600 mt-1 text-xl" />
-                  <div>
-                    <h3 className="font-bold text-gray-800 text-lg">Address</h3>
-                    <p className="text-gray-600">123 Riverside, Phnom Penh, Cambodia</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-4">
-                  <FaPhone className="text-blue-600 mt-1 text-xl" />
-                  <div>
-                    <h3 className="font-bold text-gray-800 text-lg">Phone</h3>
-                    <p className="text-gray-600">+855 23 456 7890</p>
-                    <p className="text-gray-600">+855 92 474 158</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-4">
-                  <FaEnvelope className="text-blue-600 mt-1 text-xl" />
-                  <div>
-                    <h3 className="font-bold text-gray-800 text-lg">Email</h3>
-                    <p className="text-gray-600">reservations@moonhotel.com</p>
-                    <p className="text-gray-600">info@moonhotel.com</p>
-                  </div>
-                </div>
-              </div>
-              
-              <form className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="name" className="block text-gray-700 mb-1">Name</label>
-                    <input 
-                      id="name"
-                      type="text" 
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                      placeholder="Your name"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="email" className="block text-gray-700 mb-1">Email</label>
-                    <input 
-                      id="email"
-                      type="email" 
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                      placeholder="Your email"
-                    />
-                  </div>
-                </div>
-                
-                <div>
-                  <label htmlFor="subject" className="block text-gray-700 mb-1">Subject</label>
-                  <input 
-                    id="subject"
-                    type="text" 
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                    placeholder="Subject"
-                  />
-                </div>
-                
-                <div>
-                  <label htmlFor="message" className="block text-gray-700 mb-1">Message</label>
-                  <textarea 
-                    id="message"
-                    rows="4" 
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="How can we help you?"
-                  ></textarea>
-                </div>
-                
-                <button 
-                  type="submit" 
-                  className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
-                >
-                  Send Message
-                </button>
-              </form>
-            </div>
-          </div>
-        </section>
       </main>
-
       {/* Footer */}
       <footer className="bg-gray-800 text-white py-12">
         <div className="container mx-auto px-4">
