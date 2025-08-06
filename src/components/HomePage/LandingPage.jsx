@@ -6,22 +6,107 @@ import {
   FaSignInAlt, FaSignOutAlt, FaPhone, FaEnvelope, FaMapMarkerAlt,
   FaCalendarAlt, FaSearch, FaStar, FaRegSnowflake, FaRegStar,
   FaUtensils, FaConciergeBell, FaParking,
-  FaCheck, FaTimes // Added missing icons
+  FaCheck, FaTimes
 } from 'react-icons/fa';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const API_BASE_URL = 'http://localhost:5000';
 
+// Auth service functions
+const authService = {
+  // Register a new user
+  register: async (userData) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Registration failed');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
+  },
+
+  // Login user
+  login: async (credentials) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Important for cookies
+        body: JSON.stringify(credentials),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Login failed');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
+  },
+
+  // Get current user data
+  getCurrentUser: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        credentials: 'include', // Important for cookies
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch user data');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Get current user error:', error);
+      throw error;
+    }
+  },
+
+  // Logout user
+  logout: async () => {
+    try {
+      // Assuming you have a logout endpoint
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  }
+};
+
+// Improved image URL handler with better error handling
 const getImageUrl = (imagePath) => {
-  if (!imagePath) return null;
+  if (!imagePath) {
+    return 'https://source.unsplash.com/random/800x600/?hotel-room';
+  }
   
   // Handle absolute URLs
-  if (imagePath.startsWith('http')) return imagePath;
+  if (imagePath.startsWith('http')) {
+    return imagePath;
+  }
   
-  // Handle local server paths (both with and without leading slash)
+  // Handle local server paths
   if (imagePath.startsWith('/uploads') || imagePath.startsWith('uploads')) {
-    // Ensure we have exactly one leading slash
     const normalizedPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
     return `${API_BASE_URL}${normalizedPath}`;
   }
@@ -30,7 +115,6 @@ const getImageUrl = (imagePath) => {
   return `${API_BASE_URL}/${imagePath.replace(/^\/+/, '')}`;
 };
 
-// Add LoadingSkeleton component
 const LoadingSkeleton = () => (
   <div className="grid md:grid-cols-3 gap-6">
     {[...Array(6)].map((_, i) => (
@@ -50,8 +134,7 @@ const LoadingSkeleton = () => (
 
 const LandingPage = () => {
   const navigate = useNavigate();
-  const [rooms, setRooms] = useState([]);
-  const [filteredRooms, setFilteredRooms] = useState([]);
+  const [availableRooms, setAvailableRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -60,146 +143,207 @@ const LandingPage = () => {
   const [startDate, endDate] = dateRange;
   const [selectedRoomType, setSelectedRoomType] = useState(null);
   const [roomTypes, setRoomTypes] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
 
-  // Check auth status
+  // Check auth status on component mount
   useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    const storedUser = localStorage.getItem('userData');
-    if (token && storedUser) {
-      setIsLoggedIn(true);
-      setUserData(JSON.parse(storedUser));
-    }
+    const checkAuthStatus = async () => {
+      try {
+        const data = await authService.getCurrentUser();
+        if (data.user) {
+          setIsLoggedIn(true);
+          setUserData(data.user);
+          localStorage.setItem('userData', JSON.stringify(data.user));
+        }
+      } catch (error) {
+        // Not logged in or error occurred
+        setIsLoggedIn(false);
+        setUserData(null);
+        localStorage.removeItem('userData');
+      }
+    };
+
+    checkAuthStatus();
   }, []);
 
-  // Fetch data with proper image handling
+  // Handle login
+  const handleLogin = async (credentials) => {
+    try {
+      setLoading(true);
+      const data = await authService.login(credentials);
+      
+      if (data.user) {
+        setIsLoggedIn(true);
+        setUserData(data.user);
+        localStorage.setItem('userData', JSON.stringify(data.user));
+        navigate('/');
+      }
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle register
+  const handleRegister = async (userData) => {
+    try {
+      setLoading(true);
+      const data = await authService.register(userData);
+      
+      if (data.user) {
+        // Auto-login after registration
+        await handleLogin({
+          email: userData.email,
+          password: userData.password
+        });
+      }
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await authService.logout();
+      setIsLoggedIn(false);
+      setUserData(null);
+      localStorage.removeItem('userData');
+      navigate('/');
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+
+  // Fetch room types with proper error handling
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchRoomTypes = async () => {
       try {
         setLoading(true);
-        setError(null);
-        
-        const [roomsRes, typesRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/rooms?page=${currentPage}`),
-          fetch(`${API_BASE_URL}/api/room-types?page=1&limit=10`)
-        ]);
-
-        if (!roomsRes.ok) throw new Error('Failed to fetch rooms');
-        if (!typesRes.ok) throw new Error('Failed to fetch room types');
-
-        const roomsData = await roomsRes.json();
-        const typesData = await typesRes.json();
-
-        // Create a map of room types for quick lookup
-        const roomTypesMap = {};
-        typesData.data.items.forEach(type => {
-          roomTypesMap[type.type_id] = {
-            ...type,
-            image: getImageUrl(type.image_url)
-          };
+        const response = await fetch(`${API_BASE_URL}/api/room-types`, {
+          credentials: 'include'
         });
-
-        // Process rooms with their images
-        const processedRooms = roomsData.data.map(room => {
-          const roomType = roomTypesMap[room.type?.type_id] || room.type;
-          
-          return {
-            ...room,
-            id: room.room_id,
-            name: room.room_number,
-            image: getImageUrl(room.image_url) || roomType?.image,
-            type: roomType,
-            statusDisplay: room.status ? 
-              room.status.charAt(0).toUpperCase() + room.status.slice(1) : 
-              'Unknown'
-          };
-        });
-
-        setRooms(processedRooms);
-        setFilteredRooms(processedRooms);
-        setRoomTypes(typesData.data.items);
-        setTotalPages(roomsData.pagination?.total_pages || 1);
         
+        if (!response.ok) throw new Error('Failed to fetch room types');
+        
+        const data = await response.json();
+        const types = Array.isArray(data.data) ? data.data : 
+                     Array.isArray(data.data?.items) ? data.data.items : 
+                     [];
+        
+        // Process images with default fallback
+        const processedTypes = types.map(type => ({
+          ...type,
+          image_url: type.image_url || 'https://source.unsplash.com/random/800x600/?hotel-room'
+        }));
+        
+        setRoomTypes(processedTypes);
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err.message || 'Failed to fetch data');
+        console.error('Error fetching room types:', err);
+        setError(err.message);
+        setRoomTypes([]);
       } finally {
         setLoading(false);
       }
     };
-
-    fetchData();
-  }, [currentPage]);
-
-  // Define filterRooms function
-  const filterRooms = () => {
-    let result = [...rooms];
     
-    if (selectedRoomType) {
-      result = result.filter(room => 
-        room.type?.type_id === parseInt(selectedRoomType)
-      );
-    }
-    
-    if (startDate && endDate) {
-      // Add date filtering logic when your API supports it
-    }
-    
-    setFilteredRooms(result);
-  };
+    fetchRoomTypes();
+  }, []);
 
+  // Check room availability when dates change
   useEffect(() => {
-    filterRooms();
-  }, [selectedRoomType, startDate, endDate, rooms]);
+    if (startDate && endDate) {
+      checkRoomAvailability();
+    }
+  }, [startDate, endDate, adults, children, selectedRoomType]);
 
-  const renderFeatureIcon = (feature, value) => {
-    const icons = {
-      wifi: <FaWifi className={value ? "text-blue-500" : "text-gray-300"} />,
-      tv: <FaTv className={value ? "text-blue-500" : "text-gray-300"} />,
-      ac: value ? <FaSnowflake className="text-blue-500" /> : <FaRegSnowflake className="text-gray-300" />,
-      minibar: <FaGlassMartiniAlt className={value ? "text-blue-500" : "text-gray-300"} />
-    };
-    return icons[feature] || null;
+  const checkRoomAvailability = async () => {
+    if (!startDate || !endDate) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const checkIn = startDate.toISOString().split('T')[0];
+      const checkOut = endDate.toISOString().split('T')[0];
+      
+      const url = new URL(`${API_BASE_URL}/api/Reservations/availability/rooms`);
+      url.searchParams.append('check_in', checkIn);
+      url.searchParams.append('check_out', checkOut);
+      url.searchParams.append('adults', adults);
+      url.searchParams.append('children', children);
+      
+      if (selectedRoomType) {
+        url.searchParams.append('type_id', selectedRoomType);
+      }
+      
+      const response = await fetch(url, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) throw new Error('Failed to check room availability');
+      
+      const data = await response.json();
+      
+      // Process room images with proper fallback
+      const processedRooms = (data.data?.available_rooms || []).map(room => {
+        const roomType = room.type || {};
+        return {
+          ...room,
+          type: {
+            ...roomType,
+            image_url: roomType.image_url || 'https://source.unsplash.com/random/800x600/?hotel-room'
+          }
+        };
+      });
+      
+      setAvailableRooms(processedRooms);
+    } catch (err) {
+      console.error('Error checking room availability:', err);
+      setError(err.message || 'Failed to check availability');
+      setAvailableRooms([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const RoomCard = ({ room, index }) => {
-    // Use room image if available, otherwise use room type image
-    const roomImage = room.image || room.type?.image;
-    const roomTypeName = room.type?.name || 'Standard Room';
+  const RoomCard = ({ room }) => {
+    const roomType = room.type || {};
+    const amenities = room.amenities || [];
+    const nights = calculateNights(room.check_in, room.check_out) || 1;
+    const totalPrice = parseFloat(room.total_price) || parseFloat(roomType.base_price) * nights;
+    
+    // State for image handling with fallback
+    const [imageSrc, setImageSrc] = useState(
+      getImageUrl(roomType.image_url)
+    );
+
+    const handleImageError = () => {
+      setImageSrc('https://source.unsplash.com/random/800x600/?hotel-room');
+    };
 
     return (
       <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 h-full flex flex-col">
         <div className="relative h-56 overflow-hidden">
-          {roomImage ? (
-            <img 
-              src={roomImage}
-              alt={`${roomTypeName} Room`}
-              className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-              loading="lazy"
-              crossOrigin="anonymous"
-              onError={(e) => {
-                e.target.src = 'https://source.unsplash.com/random/800x600/?hotel-room';
-                e.target.onerror = null;
-              }}
-            />
-          ) : (
-            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-              <span className="text-gray-500">Image not available</span>
-            </div>
-          )}
+          <img 
+            src={imageSrc}
+            alt={`${roomType.name || 'Hotel'} Room`}
+            className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
+            loading="lazy"
+            onError={handleImageError}
+          />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
             <div className="flex justify-between items-end">
               <div>
-                <h3 className="text-white font-bold text-xl">Room {room.room_number}</h3>
-                <p className="text-white/90">{roomTypeName}</p>
+                <h3 className="text-white font-bold text-xl">Room {room.room_number || 'N/A'}</h3>
+                <p className="text-white/90">{roomType.name || 'Standard Room'}</p>
               </div>
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                room.status === 'available' ? 'bg-green-100 text-green-800' :
-                room.status === 'maintenance' ? 'bg-red-100 text-red-800' :
-                'bg-yellow-100 text-yellow-800'
-              }`}>
-                {room.statusDisplay}
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Available
               </span>
             </div>
           </div>
@@ -209,14 +353,14 @@ const LandingPage = () => {
           <div className="flex-grow">
             <div className="flex justify-between items-start mb-3">
               <div>
-                <p className="text-gray-600 text-sm">{room.type?.description || 'Comfortable room'}</p>
+                <p className="text-gray-600 text-sm">{roomType.description || 'Comfortable room'}</p>
                 <div className="flex items-center mt-1 text-sm text-gray-500">
-                  <FaBed className="mr-1" />
-                  <span>{room.type?.bed_type || 'Standard Bed'}</span>
+                  <FaUser className="mr-1" />
+                  <span>Capacity: {roomType.capacity || 2}</span>
                 </div>
               </div>
               <p className="text-blue-600 font-bold text-xl whitespace-nowrap">
-                ${room.type?.base_price || '0'}
+                ${roomType.base_price || '0'}
                 <span className="text-sm font-normal text-gray-500"> /night</span>
               </p>
             </div>
@@ -224,42 +368,19 @@ const LandingPage = () => {
             <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
               <div className="flex items-center">
                 <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-                {room.type?.size || 'N/A'}
+                Floor: {room.floor || 'N/A'}
               </div>
               <div className="flex items-center">
                 <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-                Sleeps {room.type?.capacity || '1'}
+                Nights: {nights}
               </div>
             </div>
             
-            {room.features && (
-              <div className="mb-4">
-                <p className="text-sm font-medium text-gray-700 mb-2">Features:</p>
-                <div className="flex space-x-3">
-                  {Object.entries(room.features).map(([feature, value]) => (
-                    <div key={feature} className="flex flex-col items-center">
-                      {value ? (
-                        <>
-                          <FaCheck className="text-green-500" />
-                          <span className="text-xs mt-1 capitalize">{feature}</span>
-                        </>
-                      ) : (
-                        <>
-                          <FaTimes className="text-gray-300" />
-                          <span className="text-xs mt-1 capitalize text-gray-400">{feature}</span>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {room.amenities?.length > 0 && (
+            {amenities.length > 0 && (
               <div className="mb-4">
                 <p className="text-sm font-medium text-gray-700 mb-1">Amenities:</p>
                 <div className="flex flex-wrap gap-1">
-                  {room.amenities.map(amenity => (
+                  {amenities.map(amenity => (
                     <span key={amenity.amenity_id} className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">
                       {amenity.name}
                     </span>
@@ -269,21 +390,30 @@ const LandingPage = () => {
             )}
           </div>
           
-          <button 
-            onClick={() => navigate(`/book?room=${room.room_id}`)}
-            disabled={room.status !== 'available'}
-            className={`w-full py-2 rounded-lg font-medium transition ${
-              room.status === 'available' 
-                ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            {room.status === 'available' ? 'Book Now' : 'Not Available'}
-          </button>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <p className="text-sm text-gray-600">Total for {nights} night{nights !== 1 ? 's' : ''}:</p>
+              <p className="text-lg font-bold text-blue-600">${totalPrice.toFixed(2)}</p>
+            </div>
+            <button 
+              onClick={() => navigate(`/book?room=${room.room_id}&check_in=${startDate.toISOString()}&check_out=${endDate.toISOString()}`)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+            >
+              Book Now
+            </button>
+          </div>
         </div>
       </div>
     );
   };
+
+  function calculateNights(checkIn, checkOut) {
+    if (!checkIn || !checkOut) return 0;
+    const oneDay = 24 * 60 * 60 * 1000;
+    const firstDate = new Date(checkIn);
+    const secondDate = new Date(checkOut);
+    return Math.round(Math.abs((firstDate - secondDate) / oneDay));
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -302,20 +432,18 @@ const LandingPage = () => {
             
             {isLoggedIn ? (
               <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-1 text-blue-700">
+                  <FaUser className="text-lg" />
+                  <span>{userData?.firstName || 'User'}</span>
+                </div>
                 <button 
                   onClick={() => navigate('/dashboard')}
-                  className="flex items-center space-x-1 text-blue-700 hover:text-blue-900"
+                  className="text-gray-700 hover:text-blue-600 transition"
                 >
-                  <FaUser className="text-lg" />
-                  <span>Dashboard</span>
+                  Dashboard
                 </button>
                 <button 
-                  onClick={() => {
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('userData');
-                    setIsLoggedIn(false);
-                    navigate('/');
-                  }}
+                  onClick={handleLogout}
                   className="flex items-center space-x-1 text-red-600 hover:text-red-800"
                 >
                   <FaSignOutAlt className="text-lg" />
@@ -343,7 +471,7 @@ const LandingPage = () => {
         </div>
       </header>
 
-      {/* Hero */}
+      {/* Hero Section */}
       <section className="relative bg-gray-900 text-white h-96 md:h-[500px]">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-900/70 to-blue-800/50"></div>
         <img 
@@ -351,7 +479,6 @@ const LandingPage = () => {
           alt="Luxury hotel rooms" 
           className="w-full h-full object-cover"
           loading="lazy"
-          crossOrigin="anonymous"
           onError={(e) => {
             e.target.src = 'https://source.unsplash.com/random/1600x900/?hotel';
           }}
@@ -377,10 +504,10 @@ const LandingPage = () => {
       </section>
 
       <main className="flex-grow container mx-auto px-4 py-12">
-        {/* Room Filter */}
+        {/* Room Filter Section */}
         <section className="mb-12 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
           <div className="flex flex-col md:flex-row gap-4 items-end">
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Check In - Check Out</label>
                 <DatePicker
@@ -402,7 +529,7 @@ const LandingPage = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">All Room Types</option>
-                  {roomTypes.map(type => (
+                  {Array.isArray(roomTypes) && roomTypes.map(type => (
                     <option key={type.type_id} value={type.type_id}>
                       {type.name}
                     </option>
@@ -411,33 +538,56 @@ const LandingPage = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Guests</label>
-                <select className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option>1 Adult</option>
-                  <option>2 Adults</option>
-                  <option>Family (2+2)</option>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adults</label>
+                <select
+                  value={adults}
+                  onChange={(e) => setAdults(parseInt(e.target.value))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {[1, 2, 3, 4, 5].map(num => (
+                    <option key={num} value={num}>{num} Adult{num !== 1 ? 's' : ''}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Children</label>
+                <select
+                  value={children}
+                  onChange={(e) => setChildren(parseInt(e.target.value))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {[0, 1, 2, 3, 4].map(num => (
+                    <option key={num} value={num}>{num} Child{num !== 1 ? 'ren' : ''}</option>
+                  ))}
                 </select>
               </div>
             </div>
             
             <button
-              onClick={filterRooms}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2"
+              onClick={checkRoomAvailability}
+              disabled={!startDate || !endDate}
+              className={`px-6 py-3 text-white rounded-lg font-medium flex items-center gap-2 ${
+                !startDate || !endDate 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
               <FaSearch />
-              Search Rooms
+              Check Availability
             </button>
           </div>
         </section>
 
-        {/* Rooms */}
+        {/* Available Rooms Section */}
         <section id="rooms" className="mb-16">
           <div className="flex justify-between items-center mb-8">
             <div>
-              <h2 className="text-3xl font-bold text-gray-800">Our Rooms & Suites</h2>
+              <h2 className="text-3xl font-bold text-gray-800">Available Rooms</h2>
               <p className="text-gray-600">
-                {filteredRooms.length} room{filteredRooms.length !== 1 ? 's' : ''} available
+                {availableRooms.length} room{availableRooms.length !== 1 ? 's' : ''} available
                 {selectedRoomType && ` in ${roomTypes.find(t => t.type_id === parseInt(selectedRoomType))?.name} category`}
+                {startDate && endDate && ` for ${calculateNights(startDate, endDate)} night${calculateNights(startDate, endDate) !== 1 ? 's' : ''}`}
               </p>
             </div>
           </div>
@@ -448,39 +598,35 @@ const LandingPage = () => {
             <div className="text-center py-12 text-red-500">
               <p className="text-lg">Error loading rooms: {error}</p>
               <button 
-                onClick={() => window.location.reload()}
+                onClick={checkRoomAvailability}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 Try Again
               </button>
             </div>
+          ) : availableRooms.length === 0 && startDate && endDate ? (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg">No rooms available for the selected dates and filters</p>
+              <button 
+                onClick={() => {
+                  setSelectedRoomType(null);
+                  setDateRange([null, null]);
+                }}
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Clear Filters
+              </button>
+            </div>
           ) : (
-            <>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredRooms.map((room, index) => (
-                  <RoomCard key={room.room_id} room={room} index={index} />
-                ))}
-              </div>
-              
-              {totalPages > 1 && (
-                <div className="flex justify-center mt-8">
-                  <div className="flex space-x-2">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        className={`px-4 py-2 rounded-lg ${currentPage === page ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300'}`}
-                      >
-                        {page}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {availableRooms.map((room) => (
+                <RoomCard key={room.room_id} room={room} />
+              ))}
+            </div>
           )}
         </section>
       </main>
+
       {/* Footer */}
       <footer className="bg-gray-800 text-white py-12">
         <div className="container mx-auto px-4">

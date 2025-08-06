@@ -44,13 +44,13 @@ const ReservationList = () => {
       const room = reservation.room || {};
       const nights = calculateNights(reservation.check_in, reservation.check_out) || 1;
       
-      const roomDetails = [{
+      const roomDetails = {
         id: room.room_id || reservation.room_id,
-        name: room.room_number || `Room ${reservation.room_id}`,
-        type: room.type_id || 'Standard',
-        price: 0,
-        total: 0
-      }];
+        number: room.room_number || `Room ${reservation.room_id}`,
+        type: room.room_type?.name || 'Standard',
+        price: parseFloat(room.room_type?.base_price) || 0,
+        total: parseFloat(reservation.total_amount) || 0
+      };
 
       const totalAmount = parseFloat(reservation.total_amount) || 0;
       const paidAmount = parseFloat(reservation.paid_amount) || 0;
@@ -69,6 +69,7 @@ const ReservationList = () => {
         },
         code: `R-${reservation.reservation_id.toString().padStart(6, '0')}`,
         roomNumber: room.room_number || 'N/A',
+        roomType: room.room_type?.name || 'Standard',
         roomDetails,
         duration: `${nights} nights`,
         checkIn: reservation.check_in,
@@ -85,7 +86,8 @@ const ReservationList = () => {
         adults: reservation.adults || 1,
         children: reservation.children || 0,
         specialRequests: reservation.special_requests || 'None',
-        reservationGuests: reservation.reservation_guests || []
+        reservationGuests: reservation.reservation_guests || [],
+        amenities: room.amenities?.map(a => a.name) || []
       };
     });
   }, []);
@@ -106,7 +108,6 @@ const ReservationList = () => {
       const reservationsData = await fetchData(API_ENDPOINTS.RESERVATIONS);
       const normalizedReservations = normalizeData(reservationsData);
 
-      // Extract unique guests and rooms from reservations
       const uniqueGuests = [];
       const uniqueRooms = [];
       const guestIds = new Set();
@@ -162,7 +163,6 @@ const ReservationList = () => {
     setError(null);
     
     try {
-      // Optimistically update the UI
       const optimisticReservation = {
         ...newReservation,
         id: `temp-${Date.now()}`,
@@ -179,23 +179,24 @@ const ReservationList = () => {
           nationalId: 'N/A'
         },
         roomNumber: newReservation.roomNumber,
+        roomType: newReservation.roomType || 'Standard',
         duration: `${calculateNights(newReservation.checkIn, newReservation.checkOut)} nights`,
         totalAmount: 0,
         paidAmount: 0,
         balance: 0,
         paymentMethod: 'Credit Card',
-        roomDetails: [{
+        roomDetails: {
           id: newReservation.roomId,
-          name: newReservation.roomNumber,
-          type: 'Standard',
+          number: newReservation.roomNumber,
+          type: newReservation.roomType || 'Standard',
           price: 0,
           total: 0
-        }]
+        },
+        amenities: []
       };
 
       setReservations(prev => [optimisticReservation, ...prev]);
       
-      // Make the actual API call
       const response = await fetch(API_ENDPOINTS.RESERVATIONS, {
         method: 'POST',
         headers: {
@@ -220,7 +221,6 @@ const ReservationList = () => {
 
       const result = await response.json();
       
-      // Replace the optimistic update with the actual data
       setReservations(prev => {
         const updated = [...prev];
         const index = updated.findIndex(r => r.id === optimisticReservation.id);
@@ -233,10 +233,7 @@ const ReservationList = () => {
       setShowForm(false);
     } catch (err) {
       console.error("Create reservation error:", err);
-      
-      // Rollback the optimistic update
       setReservations(prev => prev.filter(r => r.id !== `temp-${Date.now()}`));
-      
       setError(err.message || 'Failed to create reservation');
     } finally {
       setLoading(false);
@@ -263,6 +260,7 @@ const ReservationList = () => {
         reservation.guestDetails?.name, 
         reservation.code, 
         reservation.roomNumber, 
+        reservation.roomType,
         reservation.guestDetails?.email, 
         reservation.guestDetails?.phone
       ].join(' ').toLowerCase();

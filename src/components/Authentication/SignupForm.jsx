@@ -5,14 +5,13 @@ import { FcGoogle } from 'react-icons/fc';
 
 const SignupForm = () => {
   const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
+    username: '',
+    firstName: '',
+    lastName: '',
     email: '',
-    password: '',
-    confirmPassword: ''
+    password: ''
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -30,11 +29,6 @@ const SignupForm = () => {
     e.preventDefault();
     setError('');
     
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-
     if (!acceptedTerms) {
       setError('You must accept the terms and conditions');
       return;
@@ -43,14 +37,15 @@ const SignupForm = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://localhost:5001/api/auth/register', {
+      const res = await fetch('http://localhost:5000/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name: formData.first_name,
-          last_name: formData.last_name,
+          username: formData.username,
           email: formData.email,
-          password: formData.password
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName
         }),
       });
 
@@ -58,9 +53,13 @@ const SignupForm = () => {
       
       if (!res.ok) throw new Error(data.message || 'Registration failed');
 
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('userData', JSON.stringify(data.user));
-      navigate('/'); // Redirect to home after successful registration
+      // Redirect to login with success state
+      navigate('/login', { 
+        state: { 
+          registrationSuccess: true,
+          email: formData.email 
+        } 
+      });
       
     } catch (err) {
       setError(err.message || 'An error occurred during registration');
@@ -70,7 +69,7 @@ const SignupForm = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:5001/api/auth/google';
+    window.location.href = 'http://localhost:5000/api/auth/google';
   };
 
   return (
@@ -103,10 +102,32 @@ const SignupForm = () => {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Username Field */}
+              <div>
+                <label htmlFor="username" className="block text-lg font-medium text-gray-700 mb-2">
+                  Username
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <FiUser className="text-gray-400 text-xl" />
+                  </div>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter username"
+                    required
+                  />
+                </div>
+              </div>
+
               {/* Name Fields */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="first_name" className="block text-lg font-medium text-gray-700 mb-2">
+                  <label htmlFor="firstName" className="block text-lg font-medium text-gray-700 mb-2">
                     First Name
                   </label>
                   <div className="relative">
@@ -114,20 +135,19 @@ const SignupForm = () => {
                       <FiUser className="text-gray-400 text-xl" />
                     </div>
                     <input
-                      id="first_name"
-                      name="first_name"
+                      id="firstName"
+                      name="firstName"
                       type="text"
-                      value={formData.first_name}
+                      value={formData.firstName}
                       onChange={handleChange}
                       className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Sengly"
+                      placeholder="Moly"
                       required
-                      autoComplete="given-name"
                     />
                   </div>
                 </div>
                 <div>
-                  <label htmlFor="last_name" className="block text-lg font-medium text-gray-700 mb-2">
+                  <label htmlFor="lastName" className="block text-lg font-medium text-gray-700 mb-2">
                     Last Name
                   </label>
                   <div className="relative">
@@ -135,15 +155,14 @@ const SignupForm = () => {
                       <FiUser className="text-gray-400 text-xl" />
                     </div>
                     <input
-                      id="last_name"
-                      name="last_name"
+                      id="lastName"
+                      name="lastName"
                       type="text"
-                      value={formData.last_name}
+                      value={formData.lastName}
                       onChange={handleChange}
                       className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Un"
+                      placeholder="Lin"
                       required
-                      autoComplete="family-name"
                     />
                   </div>
                 </div>
@@ -165,9 +184,8 @@ const SignupForm = () => {
                     value={formData.email}
                     onChange={handleChange}
                     className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="your@email.com"
+                    placeholder="moly@gmail.com"
                     required
-                    autoComplete="email"
                   />
                 </div>
               </div>
@@ -188,9 +206,8 @@ const SignupForm = () => {
                     value={formData.password}
                     onChange={handleChange}
                     className="block w-full pl-12 pr-12 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="••••••••"
+                    placeholder="moly@123"
                     required
-                    autoComplete="new-password"
                     minLength="6"
                   />
                   <button
@@ -199,39 +216,6 @@ const SignupForm = () => {
                     className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? 
-                      <FiEyeOff className="text-xl" /> : 
-                      <FiEye className="text-xl" />
-                    }
-                  </button>
-                </div>
-              </div>
-
-              {/* Confirm Password Field */}
-              <div>
-                <label htmlFor="confirmPassword" className="block text-lg font-medium text-gray-700 mb-2">
-                  Confirm Password
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <FiLock className="text-gray-400 text-xl" />
-                  </div>
-                  <input
-                    id="confirmPassword"
-                    name="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    value={formData.confirmPassword}
-                    onChange={handleChange}
-                    className="block w-full pl-12 pr-12 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="••••••••"
-                    required
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmPassword ? 
                       <FiEyeOff className="text-xl" /> : 
                       <FiEye className="text-xl" />
                     }
@@ -306,9 +290,12 @@ const SignupForm = () => {
           <div className="bg-gray-50/70 px-8 py-6 text-center border-t-2 border-gray-200">
             <p className="text-lg text-gray-600">
               Already have an account?{' '}
-              <a href="/login" className="font-medium text-blue-600 hover:text-blue-800">
+              <button 
+                onClick={() => navigate('/login')} 
+                className="font-medium text-blue-600 hover:text-blue-800"
+              >
                 Sign in
-              </a>
+              </button>
             </p>
           </div>
         </div>
