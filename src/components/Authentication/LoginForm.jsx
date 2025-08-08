@@ -2,37 +2,15 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUser, FiLock, FiEye, FiEyeOff, FiLogIn } from 'react-icons/fi';
 import { FcGoogle } from 'react-icons/fc';
+import { useAuth } from '../context/AuthContext';
 
 const LoginForm = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-
-  const fetchUserData = async () => {
-    try {
-      const response = await fetch('http://localhost:5000/api/auth/me', {
-        credentials: 'include' // Required for cookies
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch user data');
-      }
-      
-      const userData = await response.json();
-      
-      if (!userData.role) {
-        throw new Error('User role not found');
-      }
-      
-      return userData;
-    } catch (err) {
-      console.error('User data fetch error:', err);
-      throw new Error('Failed to authenticate. Please try again.');
-    }
-  };
+  const { login, isLoading } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -43,40 +21,21 @@ const LoginForm = () => {
       return;
     }
 
-    setIsLoading(true);
-
     try {
-      // 1. Login request (sets cookies)
-      const loginResponse = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        credentials: 'include' // Required for cookies
-      });
-
-      const loginData = await loginResponse.json();
-
-      if (!loginResponse.ok) {
-        throw new Error(loginData.message || 'Login failed');
-      }
-
-      // 2. Get user role
-      const userData = await fetchUserData();
-
-      // 3. Redirect based on role
-      if (userData.role.toLowerCase() === 'admin' || userData.role.toLowerCase() === 'staff') {
-        navigate('/home');
-      } else if (userData.role.toLowerCase() === 'guest') {
-        window.location.href = 'http://localhost:3000';
+      const { success, user, error: loginError } = await login({ username, password });
+      
+      if (success) {
+        if (user.role === 'admin' || user.role === 'staff') {
+          navigate('/home');
+        } else if (user.role === 'guest') {
+          window.location.href = 'http://localhost:3000/landing';
+        }
       } else {
-        navigate('/');
+        setError(loginError || 'Login failed');
       }
-
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
+      setError('An unexpected error occurred');
     }
   };
 

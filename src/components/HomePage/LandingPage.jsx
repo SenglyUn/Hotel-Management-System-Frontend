@@ -1,117 +1,98 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   FaBed, FaWifi, FaSwimmingPool, FaTv, 
   FaSnowflake, FaGlassMartiniAlt, FaUser, 
   FaSignInAlt, FaSignOutAlt, FaPhone, FaEnvelope, FaMapMarkerAlt,
   FaCalendarAlt, FaSearch, FaStar, FaRegSnowflake, FaRegStar,
   FaUtensils, FaConciergeBell, FaParking,
-  FaCheck, FaTimes
+  FaCheck, FaTimes, FaHome, FaBookmark
 } from 'react-icons/fa';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const API_BASE_URL = 'http://localhost:5000';
 
-// Auth service functions
+// Enhanced auth service with better error handling
 const authService = {
-  // Register a new user
   register: async (userData) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Registration failed');
-      }
-
-      return await response.json();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Registration failed');
+      
+      toast.success('Registration successful!');
+      return data;
     } catch (error) {
-      console.error('Registration error:', error);
+      toast.error(error.message);
       throw error;
     }
   },
 
-  // Login user
   login: async (credentials) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Important for cookies
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(credentials),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Login failed');
-      }
-
-      return await response.json();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Login failed');
+      
+      toast.success(`Welcome back, ${data.user?.firstName || 'User'}!`);
+      return data;
     } catch (error) {
-      console.error('Login error:', error);
+      toast.error(error.message);
       throw error;
     }
   },
 
-  // Get current user data
   getCurrentUser: async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-        credentials: 'include', // Important for cookies
+        credentials: 'include',
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch user data');
-      }
-
+      if (!response.ok) throw new Error('Session expired');
       return await response.json();
     } catch (error) {
-      console.error('Get current user error:', error);
       throw error;
     }
   },
 
-  // Logout user
   logout: async () => {
     try {
-      // Assuming you have a logout endpoint
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
+      toast.success('Logged out successfully');
     } catch (error) {
-      console.error('Logout error:', error);
+      toast.error('Logout failed');
     }
   }
 };
 
-// Improved image URL handler with better error handling
+// Enhanced image handler with caching
 const getImageUrl = (imagePath) => {
-  if (!imagePath) {
-    return 'https://source.unsplash.com/random/800x600/?hotel-room';
-  }
+  if (!imagePath) return 'https://source.unsplash.com/random/800x600/?hotel-room';
   
-  // Handle absolute URLs
-  if (imagePath.startsWith('http')) {
-    return imagePath;
-  }
+  if (imagePath.startsWith('http')) return imagePath;
   
-  // Handle local server paths
   if (imagePath.startsWith('/uploads') || imagePath.startsWith('uploads')) {
     const normalizedPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
     return `${API_BASE_URL}${normalizedPath}`;
   }
   
-  // Handle other relative paths
   return `${API_BASE_URL}/${imagePath.replace(/^\/+/, '')}`;
 };
 
@@ -134,96 +115,104 @@ const LoadingSkeleton = () => (
 
 const LandingPage = () => {
   const navigate = useNavigate();
-  const [availableRooms, setAvailableRooms] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userData, setUserData] = useState(null);
-  const [dateRange, setDateRange] = useState([null, null]);
-  const [startDate, endDate] = dateRange;
-  const [selectedRoomType, setSelectedRoomType] = useState(null);
-  const [roomTypes, setRoomTypes] = useState([]);
-  const [adults, setAdults] = useState(1);
-  const [children, setChildren] = useState(0);
+  const location = useLocation();
+  const [state, setState] = useState({
+    availableRooms: [],
+    loading: true,
+    error: null,
+    isLoggedIn: false,
+    userData: null,
+    dateRange: [null, null],
+    selectedRoomType: null,
+    roomTypes: [],
+    adults: 1,
+    children: 0,
+    showAuthModal: false,
+    authMode: 'login' // 'login' or 'register'
+  });
 
-  // Check auth status on component mount
+  const {
+    availableRooms, loading, error, isLoggedIn, userData,
+    dateRange, selectedRoomType, roomTypes, adults, children,
+    showAuthModal, authMode
+  } = state;
+
+  const [startDate, endDate] = dateRange;
+
+  // Check auth status and handle redirects
   useEffect(() => {
-    const checkAuthStatus = async () => {
+    const checkAuthAndRedirect = async () => {
       try {
         const data = await authService.getCurrentUser();
         if (data.user) {
-          setIsLoggedIn(true);
-          setUserData(data.user);
-          localStorage.setItem('userData', JSON.stringify(data.user));
+          setState(prev => ({
+            ...prev,
+            isLoggedIn: true,
+            userData: data.user,
+            loading: false
+          }));
+          
+          // If coming from auth page, redirect to appropriate dashboard
+          if (location.state?.fromAuth) {
+            if (data.user.role === 'guest') {
+              navigate('/', { replace: true });
+            } else {
+              navigate('/home', { replace: true });
+            }
+          }
         }
       } catch (error) {
-        // Not logged in or error occurred
-        setIsLoggedIn(false);
-        setUserData(null);
-        localStorage.removeItem('userData');
+        setState(prev => ({ ...prev, isLoggedIn: false, userData: null, loading: false }));
       }
     };
 
-    checkAuthStatus();
-  }, []);
+    checkAuthAndRedirect();
+  }, [navigate, location.state]);
 
-  // Handle login
-  const handleLogin = async (credentials) => {
+  // Auth handlers
+  const handleAuth = async (credentials, isRegister = false) => {
     try {
-      setLoading(true);
-      const data = await authService.login(credentials);
+      setState(prev => ({ ...prev, loading: true }));
       
+      const data = isRegister 
+        ? await authService.register(credentials)
+        : await authService.login(credentials);
+
       if (data.user) {
-        setIsLoggedIn(true);
-        setUserData(data.user);
-        localStorage.setItem('userData', JSON.stringify(data.user));
-        navigate('/');
+        setState(prev => ({
+          ...prev,
+          isLoggedIn: true,
+          userData: data.user,
+          showAuthModal: false,
+          loading: false
+        }));
+
+        // Redirect based on role
+        if (data.user.role === 'guest') {
+          navigate('/', { state: { fromAuth: true } });
+        } else {
+          navigate('/home', { state: { fromAuth: true } });
+        }
       }
     } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
+      setState(prev => ({ ...prev, error: error.message, loading: false }));
     }
   };
 
-  // Handle register
-  const handleRegister = async (userData) => {
-    try {
-      setLoading(true);
-      const data = await authService.register(userData);
-      
-      if (data.user) {
-        // Auto-login after registration
-        await handleLogin({
-          email: userData.email,
-          password: userData.password
-        });
-      }
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle logout
   const handleLogout = async () => {
-    try {
-      await authService.logout();
-      setIsLoggedIn(false);
-      setUserData(null);
-      localStorage.removeItem('userData');
-      navigate('/');
-    } catch (error) {
-      setError(error.message);
-    }
+    await authService.logout();
+    setState(prev => ({
+      ...prev,
+      isLoggedIn: false,
+      userData: null
+    }));
+    navigate('/');
   };
 
-  // Fetch room types with proper error handling
+  // Room management
   useEffect(() => {
     const fetchRoomTypes = async () => {
       try {
-        setLoading(true);
         const response = await fetch(`${API_BASE_URL}/api/room-types`, {
           credentials: 'include'
         });
@@ -232,29 +221,30 @@ const LandingPage = () => {
         
         const data = await response.json();
         const types = Array.isArray(data.data) ? data.data : 
-                     Array.isArray(data.data?.items) ? data.data.items : 
-                     [];
+                     Array.isArray(data.data?.items) ? data.data.items : [];
         
-        // Process images with default fallback
-        const processedTypes = types.map(type => ({
-          ...type,
-          image_url: type.image_url || 'https://source.unsplash.com/random/800x600/?hotel-room'
+        setState(prev => ({
+          ...prev,
+          roomTypes: types.map(type => ({
+            ...type,
+            image_url: type.image_url || 'https://source.unsplash.com/random/800x600/?hotel-room'
+          })),
+          loading: false
         }));
-        
-        setRoomTypes(processedTypes);
       } catch (err) {
-        console.error('Error fetching room types:', err);
-        setError(err.message);
-        setRoomTypes([]);
-      } finally {
-        setLoading(false);
+        setState(prev => ({
+          ...prev,
+          error: err.message,
+          roomTypes: [],
+          loading: false
+        }));
       }
     };
     
     fetchRoomTypes();
   }, []);
 
-  // Check room availability when dates change
+  // Check availability when filters change
   useEffect(() => {
     if (startDate && endDate) {
       checkRoomAvailability();
@@ -265,8 +255,7 @@ const LandingPage = () => {
     if (!startDate || !endDate) return;
     
     try {
-      setLoading(true);
-      setError(null);
+      setState(prev => ({ ...prev, loading: true, error: null }));
       
       const checkIn = startDate.toISOString().split('T')[0];
       const checkOut = endDate.toISOString().split('T')[0];
@@ -281,53 +270,56 @@ const LandingPage = () => {
         url.searchParams.append('type_id', selectedRoomType);
       }
       
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-      
-      if (!response.ok) throw new Error('Failed to check room availability');
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to check availability');
       
       const data = await response.json();
       
-      // Process room images with proper fallback
-      const processedRooms = (data.data?.available_rooms || []).map(room => {
-        const roomType = room.type || {};
-        return {
+      setState(prev => ({
+        ...prev,
+        availableRooms: (data.data?.available_rooms || []).map(room => ({
           ...room,
           type: {
-            ...roomType,
-            image_url: roomType.image_url || 'https://source.unsplash.com/random/800x600/?hotel-room'
+            ...(room.type || {}),
+            image_url: room.type?.image_url || 'https://source.unsplash.com/random/800x600/?hotel-room'
           }
-        };
-      });
-      
-      setAvailableRooms(processedRooms);
+        })),
+        loading: false
+      }));
     } catch (err) {
-      console.error('Error checking room availability:', err);
-      setError(err.message || 'Failed to check availability');
-      setAvailableRooms([]);
-    } finally {
-      setLoading(false);
+      setState(prev => ({
+        ...prev,
+        error: err.message || 'Failed to check availability',
+        availableRooms: [],
+        loading: false
+      }));
     }
   };
 
+  // Enhanced RoomCard component
   const RoomCard = ({ room }) => {
     const roomType = room.type || {};
     const amenities = room.amenities || [];
-    const nights = calculateNights(room.check_in, room.check_out) || 1;
+    const nights = calculateNights(startDate, endDate) || 1;
     const totalPrice = parseFloat(room.total_price) || parseFloat(roomType.base_price) * nights;
-    
-    // State for image handling with fallback
-    const [imageSrc, setImageSrc] = useState(
-      getImageUrl(roomType.image_url)
-    );
+    const [imageSrc, setImageSrc] = useState(getImageUrl(roomType.image_url));
 
     const handleImageError = () => {
       setImageSrc('https://source.unsplash.com/random/800x600/?hotel-room');
     };
 
+    const handleBookNow = () => {
+      if (!isLoggedIn) {
+        setState(prev => ({ ...prev, showAuthModal: true, authMode: 'login' }));
+        toast.info('Please login to book a room');
+        return;
+      }
+      navigate(`/book?room=${room.room_id}&check_in=${startDate.toISOString()}&check_out=${endDate.toISOString()}`);
+    };
+
     return (
       <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 h-full flex flex-col">
+        {/* Room image with favorite button */}
         <div className="relative h-56 overflow-hidden">
           <img 
             src={imageSrc}
@@ -336,6 +328,15 @@ const LandingPage = () => {
             loading="lazy"
             onError={handleImageError}
           />
+          <button 
+            className="absolute top-3 right-3 p-2 bg-white/80 rounded-full hover:bg-white"
+            onClick={(e) => {
+              e.stopPropagation();
+              toast.success('Added to favorites!');
+            }}
+          >
+            <FaBookmark className="text-gray-700 hover:text-red-500" />
+          </button>
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
             <div className="flex justify-between items-end">
               <div>
@@ -349,6 +350,7 @@ const LandingPage = () => {
           </div>
         </div>
         
+        {/* Room details */}
         <div className="p-5 flex-grow flex flex-col">
           <div className="flex-grow">
             <div className="flex justify-between items-start mb-3">
@@ -396,10 +398,10 @@ const LandingPage = () => {
               <p className="text-lg font-bold text-blue-600">${totalPrice.toFixed(2)}</p>
             </div>
             <button 
-              onClick={() => navigate(`/book?room=${room.room_id}&check_in=${startDate.toISOString()}&check_out=${endDate.toISOString()}`)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+              onClick={handleBookNow}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
             >
-              Book Now
+              {isLoggedIn ? 'Book Now' : 'Login to Book'}
             </button>
           </div>
         </div>
@@ -407,44 +409,73 @@ const LandingPage = () => {
     );
   };
 
-  function calculateNights(checkIn, checkOut) {
-    if (!checkIn || !checkOut) return 0;
-    const oneDay = 24 * 60 * 60 * 1000;
-    const firstDate = new Date(checkIn);
-    const secondDate = new Date(checkOut);
-    return Math.round(Math.abs((firstDate - secondDate) / oneDay));
-  }
+  // Helper functions
+  const calculateNights = (checkIn, checkOut) => {
+      if (!checkIn || !checkOut) return 0;
+      const oneDay = 24 * 60 * 60 * 1000;
+      return Math.round(Math.abs(new Date(checkOut) - new Date(checkIn)) / oneDay);
+  };
 
+  const toggleAuthModal = (mode = 'login') => {
+    setState(prev => ({
+      ...prev,
+      showAuthModal: !prev.showAuthModal,
+      authMode: mode
+    }));
+  };
+
+  // Render
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      {/* Header */}
+      {/* Header with dynamic navigation */}
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-800 flex items-center">
+          <div 
+            className="text-2xl font-bold text-blue-800 flex items-center cursor-pointer"
+            onClick={() => navigate('/')}
+          >
             <FaBed className="mr-2" />
             MOON HOTEL
-          </h1>
+          </div>
           
           <nav className="flex items-center space-x-6">
-            <a href="#rooms" className="text-gray-700 hover:text-blue-600 transition">Rooms</a>
-            <a href="#amenities" className="text-gray-700 hover:text-blue-600 transition">Amenities</a>
-            <a href="#contact" className="text-gray-700 hover:text-blue-600 transition">Contact</a>
+            <button 
+              onClick={() => document.getElementById('rooms')?.scrollIntoView({ behavior: 'smooth' })}
+              className="text-gray-700 hover:text-blue-600 transition"
+            >
+              Rooms
+            </button>
+            <button 
+              onClick={() => document.getElementById('amenities')?.scrollIntoView({ behavior: 'smooth' })}
+              className="text-gray-700 hover:text-blue-600 transition"
+            >
+              Amenities
+            </button>
+            <button 
+              onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
+              className="text-gray-700 hover:text-blue-600 transition"
+            >
+              Contact
+            </button>
             
             {isLoggedIn ? (
               <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-1 text-blue-700">
-                  <FaUser className="text-lg" />
-                  <span>{userData?.firstName || 'User'}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                    <FaUser className="text-blue-600" />
+                  </div>
+                  <span className="text-blue-700">{userData?.firstName || 'User'}</span>
                 </div>
                 <button 
-                  onClick={() => navigate('/dashboard')}
-                  className="text-gray-700 hover:text-blue-600 transition"
+                  onClick={() => navigate(userData?.role === 'guest' ? '/' : '/home')}
+                  className="flex items-center space-x-1 text-gray-700 hover:text-blue-600 transition"
                 >
-                  Dashboard
+                  <FaHome className="text-lg" />
+                  <span>Dashboard</span>
                 </button>
                 <button 
                   onClick={handleLogout}
-                  className="flex items-center space-x-1 text-red-600 hover:text-red-800"
+                  className="flex items-center space-x-1 text-red-600 hover:text-red-800 transition"
                 >
                   <FaSignOutAlt className="text-lg" />
                   <span>Logout</span>
@@ -453,14 +484,14 @@ const LandingPage = () => {
             ) : (
               <div className="flex items-center space-x-4">
                 <button 
-                  onClick={() => navigate('/login')}
-                  className="flex items-center space-x-1 text-blue-700 hover:text-blue-900"
+                  onClick={() => toggleAuthModal('login')}
+                  className="flex items-center space-x-1 text-blue-700 hover:text-blue-900 transition"
                 >
                   <FaSignInAlt className="text-lg" />
                   <span>Login</span>
                 </button>
                 <button 
-                  onClick={() => navigate('/signup')}
+                  onClick={() => toggleAuthModal('register')}
                   className="px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition"
                 >
                   Sign Up
@@ -488,10 +519,10 @@ const LandingPage = () => {
           <p className="text-xl mb-8 max-w-2xl">Discover unparalleled comfort in our meticulously designed accommodations</p>
           <div className="flex flex-col sm:flex-row gap-4">
             <button 
-              onClick={() => navigate(isLoggedIn ? '/book' : '/signup')}
+              onClick={() => isLoggedIn ? navigate('/book') : toggleAuthModal('login')}
               className="px-8 py-3 bg-white text-blue-700 rounded-lg hover:bg-gray-100 transition font-medium"
             >
-              Book Your Stay
+              {isLoggedIn ? 'Book Your Stay' : 'Login to Book'}
             </button>
             <button 
               onClick={() => document.getElementById('rooms')?.scrollIntoView({ behavior: 'smooth' })}
@@ -503,33 +534,36 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* Main Content */}
       <main className="flex-grow container mx-auto px-4 py-12">
         {/* Room Filter Section */}
         <section className="mb-12 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
           <div className="flex flex-col md:flex-row gap-4 items-end">
             <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Date Picker */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Check In - Check Out</label>
                 <DatePicker
                   selectsRange
                   startDate={startDate}
                   endDate={endDate}
-                  onChange={setDateRange}
+                  onChange={(dates) => setState(prev => ({ ...prev, dateRange: dates }))}
                   minDate={new Date()}
                   placeholderText="Select dates"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               
+              {/* Room Type Selector */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Room Type</label>
                 <select
                   value={selectedRoomType || ''}
-                  onChange={(e) => setSelectedRoomType(e.target.value || null)}
+                  onChange={(e) => setState(prev => ({ ...prev, selectedRoomType: e.target.value || null }))}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">All Room Types</option>
-                  {Array.isArray(roomTypes) && roomTypes.map(type => (
+                  {roomTypes.map(type => (
                     <option key={type.type_id} value={type.type_id}>
                       {type.name}
                     </option>
@@ -537,11 +571,12 @@ const LandingPage = () => {
                 </select>
               </div>
               
+              {/* Adults Selector */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Adults</label>
                 <select
                   value={adults}
-                  onChange={(e) => setAdults(parseInt(e.target.value))}
+                  onChange={(e) => setState(prev => ({ ...prev, adults: parseInt(e.target.value) }))}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {[1, 2, 3, 4, 5].map(num => (
@@ -550,11 +585,12 @@ const LandingPage = () => {
                 </select>
               </div>
 
+              {/* Children Selector */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Children</label>
                 <select
                   value={children}
-                  onChange={(e) => setChildren(parseInt(e.target.value))}
+                  onChange={(e) => setState(prev => ({ ...prev, children: parseInt(e.target.value) }))}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {[0, 1, 2, 3, 4].map(num => (
@@ -567,7 +603,7 @@ const LandingPage = () => {
             <button
               onClick={checkRoomAvailability}
               disabled={!startDate || !endDate}
-              className={`px-6 py-3 text-white rounded-lg font-medium flex items-center gap-2 ${
+              className={`px-6 py-3 text-white rounded-lg font-medium flex items-center gap-2 transition ${
                 !startDate || !endDate 
                   ? 'bg-gray-400 cursor-not-allowed' 
                   : 'bg-blue-600 hover:bg-blue-700'
@@ -599,7 +635,7 @@ const LandingPage = () => {
               <p className="text-lg">Error loading rooms: {error}</p>
               <button 
                 onClick={checkRoomAvailability}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
               >
                 Try Again
               </button>
@@ -608,11 +644,12 @@ const LandingPage = () => {
             <div className="text-center py-12 text-gray-500">
               <p className="text-lg">No rooms available for the selected dates and filters</p>
               <button 
-                onClick={() => {
-                  setSelectedRoomType(null);
-                  setDateRange([null, null]);
-                }}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={() => setState(prev => ({
+                  ...prev,
+                  selectedRoomType: null,
+                  dateRange: [null, null]
+                }))}
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
               >
                 Clear Filters
               </button>
@@ -624,6 +661,97 @@ const LandingPage = () => {
               ))}
             </div>
           )}
+        </section>
+
+        {/* Amenities Section */}
+        <section id="amenities" className="mb-16">
+          <h2 className="text-3xl font-bold text-gray-800 mb-8">Our Amenities</h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { icon: <FaWifi size={24} />, name: 'Free WiFi', description: 'High-speed internet access throughout the hotel' },
+              { icon: <FaSwimmingPool size={24} />, name: 'Swimming Pool', description: 'Outdoor pool with panoramic views' },
+              { icon: <FaUtensils size={24} />, name: 'Restaurant', description: 'Gourmet dining with local and international cuisine' },
+              { icon: <FaParking size={24} />, name: 'Parking', description: 'Secure underground parking available' },
+              { icon: <FaConciergeBell size={24} />, name: '24/7 Concierge', description: 'Our staff is always available to assist you' },
+              { icon: <FaTv size={24} />, name: 'Entertainment', description: 'Premium TV channels and streaming services' },
+              { icon: <FaSnowflake size={24} />, name: 'Air Conditioning', description: 'Individual climate control in all rooms' },
+              { icon: <FaGlassMartiniAlt size={24} />, name: 'Bar & Lounge', description: 'Relax with our signature cocktails' }
+            ].map((amenity, index) => (
+              <div key={index} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
+                <div className="text-blue-600 mb-3">{amenity.icon}</div>
+                <h3 className="font-bold text-lg mb-1">{amenity.name}</h3>
+                <p className="text-gray-600">{amenity.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Contact Section */}
+        <section id="contact" className="mb-16">
+          <h2 className="text-3xl font-bold text-gray-800 mb-8">Contact Us</h2>
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+              <h3 className="font-bold text-xl mb-4">Get in Touch</h3>
+              <div className="space-y-4">
+                <div className="flex items-start space-x-3">
+                  <FaMapMarkerAlt className="text-blue-600 mt-1" />
+                  <div>
+                    <h4 className="font-medium">Address</h4>
+                    <p className="text-gray-600">123 Luxury Street, Phnom Penh, Cambodia</p>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <FaPhone className="text-blue-600 mt-1" />
+                  <div>
+                    <h4 className="font-medium">Phone</h4>
+                    <p className="text-gray-600">+855 23 456 7890</p>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <FaEnvelope className="text-blue-600 mt-1" />
+                  <div>
+                    <h4 className="font-medium">Email</h4>
+                    <p className="text-gray-600">info@moonhotel.com</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+              <h3 className="font-bold text-xl mb-4">Send Us a Message</h3>
+              <form className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter your name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your Email</label>
+                  <input 
+                    type="email" 
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter your email"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                  <textarea 
+                    rows="4"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter your message"
+                  ></textarea>
+                </div>
+                <button 
+                  type="submit"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  Send Message
+                </button>
+              </form>
+            </div>
+          </div>
         </section>
       </main>
 
@@ -647,20 +775,20 @@ const LandingPage = () => {
             <div>
               <h4 className="font-bold mb-4">Quick Links</h4>
               <ul className="space-y-2">
-                <li><a href="#rooms" className="hover:text-blue-300 transition">Rooms & Suites</a></li>
-                <li><a href="#amenities" className="hover:text-blue-300 transition">Amenities</a></li>
-                <li><a href="#contact" className="hover:text-blue-300 transition">Contact Us</a></li>
-                <li><a href="#" className="hover:text-blue-300 transition">Special Offers</a></li>
+                <li><button onClick={() => document.getElementById('rooms')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-blue-300 transition">Rooms & Suites</button></li>
+                <li><button onClick={() => document.getElementById('amenities')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-blue-300 transition">Amenities</button></li>
+                <li><button onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-blue-300 transition">Contact Us</button></li>
+                <li><button onClick={() => navigate('/book')} className="hover:text-blue-300 transition">Special Offers</button></li>
               </ul>
             </div>
             
             <div>
               <h4 className="font-bold mb-4">Information</h4>
               <ul className="space-y-2">
-                <li><a href="#" className="hover:text-blue-300 transition">About Us</a></li>
-                <li><a href="#" className="hover:text-blue-300 transition">Careers</a></li>
-                <li><a href="#" className="hover:text-blue-300 transition">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-blue-300 transition">Terms of Service</a></li>
+                <li><button onClick={() => navigate('/about')} className="hover:text-blue-300 transition">About Us</button></li>
+                <li><button onClick={() => navigate('/careers')} className="hover:text-blue-300 transition">Careers</button></li>
+                <li><button onClick={() => navigate('/privacy')} className="hover:text-blue-300 transition">Privacy Policy</button></li>
+                <li><button onClick={() => navigate('/terms')} className="hover:text-blue-300 transition">Terms of Service</button></li>
               </ul>
             </div>
             
@@ -685,6 +813,101 @@ const LandingPage = () => {
           </div>
         </div>
       </footer>
+
+      {/* Auth Modal (would be a separate component in a real app) */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-6 text-center">
+              {authMode === 'login' ? 'Login to Your Account' : 'Create an Account'}
+            </h2>
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              const credentials = {
+                email: formData.get('email'),
+                password: formData.get('password')
+              };
+              if (authMode === 'register') {
+                credentials.firstName = formData.get('firstName');
+                credentials.lastName = formData.get('lastName');
+              }
+              handleAuth(credentials, authMode === 'register');
+            }}>
+              {authMode === 'register' && (
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                    <input 
+                      name="firstName"
+                      type="text" 
+                      required
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                    <input 
+                      name="lastName"
+                      type="text" 
+                      required
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input 
+                  name="email"
+                  type="email" 
+                  required
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input 
+                  name="password"
+                  type="password" 
+                  required
+                  minLength="6"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              
+              <button 
+                type="submit"
+                className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition mb-4"
+              >
+                {authMode === 'login' ? 'Login' : 'Register'}
+              </button>
+              
+              <div className="text-center">
+                <button 
+                  type="button"
+                  onClick={() => toggleAuthModal(authMode === 'login' ? 'register' : 'login')}
+                  className="text-blue-600 hover:text-blue-800 text-sm"
+                >
+                  {authMode === 'login' 
+                    ? "Don't have an account? Register" 
+                    : "Already have an account? Login"}
+                </button>
+              </div>
+            </form>
+            
+            <button 
+              onClick={() => setState(prev => ({ ...prev, showAuthModal: false }))}
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+            >
+              <FaTimes />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
