@@ -10,12 +10,9 @@ const CreateReservationForm = ({ onClose, onSave }) => {
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingGuests, setLoadingGuests] = useState(false);
-  const [loadingRooms, setLoadingRooms] = useState(false);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [guests, setGuests] = useState([]);
-  const [allRooms, setAllRooms] = useState([]);
   const [availableRooms, setAvailableRooms] = useState([]);
-  const [existingReservations, setExistingReservations] = useState([]);
   const [additionalGuests, setAdditionalGuests] = useState([]);
   const [newAdditionalGuest, setNewAdditionalGuest] = useState({
     name: '',
@@ -28,8 +25,7 @@ const CreateReservationForm = ({ onClose, onSave }) => {
   const [form, setForm] = useState({
     guestId: null,
     guestName: '',
-    roomId: null,
-    roomNumber: '',
+    selectedRooms: [],
     checkIn: null,
     checkOut: null,
     adults: 1,
@@ -48,27 +44,16 @@ const CreateReservationForm = ({ onClose, onSave }) => {
     const fetchInitialData = async () => {
       try {
         setLoadingGuests(true);
-        setLoadingRooms(true);
         
         // Fetch guests
         const guestsResponse = await fetch('http://localhost:5000/api/guests');
         const guestsData = await guestsResponse.json();
         setGuests(guestsData);
-        
-        // Fetch all rooms
-        const roomsResponse = await fetch('http://localhost:5000/api/rooms');
-        const roomsData = await roomsResponse.json();
-        if (roomsData.success) {
-          setAllRooms(roomsData.data);
-        } else {
-          throw new Error(roomsData.message || 'Failed to fetch rooms');
-        }
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
       } finally {
         setLoadingGuests(false);
-        setLoadingRooms(false);
       }
     };
 
@@ -82,33 +67,19 @@ const CreateReservationForm = ({ onClose, onSave }) => {
       
       setLoadingAvailability(true);
       try {
-        // First fetch all reservations that overlap with our dates
         const from = form.checkIn.toISOString().split('T')[0];
         const to = form.checkOut.toISOString().split('T')[0];
         
         const res = await fetch(
-          `http://localhost:5000/api/reservations?check_in=${from}&check_out=${to}`
+          `http://localhost:5000/api/reservations/availability/rooms?check_in=${from}&check_out=${to}`
         );
-        const reservationsData = await res.json();
+        const availabilityData = await res.json();
         
-        if (!reservationsData.success) {
-          throw new Error(reservationsData.message || 'Failed to fetch reservations');
+        if (!availabilityData.success) {
+          throw new Error(availabilityData.message || 'Failed to check availability');
         }
         
-        setExistingReservations(reservationsData.data.reservations);
-        
-        // Get all booked room IDs (only confirmed reservations)
-        const bookedRoomIds = reservationsData.data.reservations
-          .filter(res => res.status === 'confirmed')
-          .map(res => res.room_id);
-        
-        // Filter available rooms (not booked and status available)
-        const available = allRooms.filter(room => 
-          room.status === 'available' && 
-          !bookedRoomIds.includes(room.room_id)
-        );
-        
-        setAvailableRooms(available);
+        setAvailableRooms(availabilityData.data.rooms);
       } catch (err) {
         console.error('Failed to check availability:', err);
         setError('Failed to check room availability. Please try again.');
@@ -120,7 +91,7 @@ const CreateReservationForm = ({ onClose, onSave }) => {
 
     const debounceTimer = setTimeout(checkRoomAvailability, 500);
     return () => clearTimeout(debounceTimer);
-  }, [form.checkIn, form.checkOut, allRooms]);
+  }, [form.checkIn, form.checkOut]);
 
   // Handle click outside dropdowns
   useEffect(() => {
@@ -148,13 +119,27 @@ const CreateReservationForm = ({ onClose, onSave }) => {
     setForm(prev => ({ ...prev, [name]: date }));
   };
 
-  const selectRoom = (room) => {
-    setForm(prev => ({
-      ...prev,
-      roomId: room.room_id,
-      roomNumber: room.room_number
-    }));
-    setIsDropdownOpen(false);
+  const toggleRoomSelection = (room) => {
+    setForm(prev => {
+      const isSelected = prev.selectedRooms.some(r => r.id === room.id);
+      
+      if (isSelected) {
+        return {
+          ...prev,
+          selectedRooms: prev.selectedRooms.filter(r => r.id !== room.id)
+        };
+      } else {
+        return {
+          ...prev,
+          selectedRooms: [...prev.selectedRooms, {
+            id: room.id,
+            number: room.number,
+            type: room.type,
+            pricing: room.pricing
+          }]
+        };
+      }
+    });
   };
 
   const selectGuest = (guest) => {
@@ -165,24 +150,6 @@ const CreateReservationForm = ({ onClose, onSave }) => {
     });
     setGuestSearch(`${guest.first_name} ${guest.last_name}`);
     setIsGuestDropdownOpen(false);
-    
-    // Auto-fill additional guests from the same family
-    if (guest.last_name) {
-      const familyMembers = guests.filter(g => 
-        g.guest_id !== guest.guest_id && 
-        g.last_name === guest.last_name
-      );
-      
-      const autoFilledGuests = familyMembers.map(member => ({
-        name: `${member.first_name} ${member.last_name}`,
-        email: member.email,
-        phone: member.phone,
-        id_type: member.id_type || 'Passport',
-        id_number: member.id_number || ''
-      }));
-      
-      setAdditionalGuests(autoFilledGuests);
-    }
   };
 
   const handleGuestInputChange = (e) => {
@@ -241,8 +208,7 @@ const CreateReservationForm = ({ onClose, onSave }) => {
     setForm({
       guestId: null,
       guestName: '',
-      roomId: null,
-      roomNumber: '',
+      selectedRooms: [],
       checkIn: null,
       checkOut: null,
       adults: 1,
@@ -268,59 +234,47 @@ const CreateReservationForm = ({ onClose, onSave }) => {
     
     // Validation
     if (!form.guestId) return setError('Please select a valid guest');
-    if (!form.roomId) return setError('Please select a room');
+    if (form.selectedRooms.length === 0) return setError('Please select at least one room');
     if (!form.checkIn || !form.checkOut) return setError('Please select both dates');
     if (form.checkOut <= form.checkIn) return setError('Check-out must be after check-in');
     if (form.adults < 1) return setError('At least one adult is required');
 
-    // Double-check room availability
-    const isRoomAvailable = !existingReservations.some(
-      res => res.room_id === form.roomId && 
-            res.status === 'confirmed' &&
-            ((new Date(res.check_in) < new Date(form.checkOut)) && 
-             (new Date(res.check_out) > new Date(form.checkIn)))
-    );
-    
-    if (!isRoomAvailable) {
-      return setError('Selected room is no longer available for these dates');
-    }
-
     setIsSubmitting(true);
     try {
-      const payload = {
+      // Create payload for each selected room
+      const payloads = form.selectedRooms.map(room => ({
         guest_id: form.guestId,
-        room_id: form.roomId,
+        room_id: room.id,
         check_in: form.checkIn.toISOString().split('T')[0],
         check_out: form.checkOut.toISOString().split('T')[0],
         adults: parseInt(form.adults),
         children: parseInt(form.children),
         special_requests: form.specialRequests,
-        additional_guests: additionalGuests.map(guest => ({
-          name: guest.name,
-          email: guest.email,
-          phone: guest.phone,
-          id_type: guest.id_type,
-          id_number: guest.id_number
-        }))
-      };
+        status: form.status
+      }));
 
-      const res = await fetch('http://localhost:5000/api/reservations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      // Send reservation for each room
+      const results = await Promise.all(
+        payloads.map(payload => 
+          fetch('http://localhost:5000/api/reservations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).then(res => res.json())
+        )
+      );
 
-      const result = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(result.message || 'Failed to create reservation');
+      // Check for errors
+      const errors = results.filter(result => !result.success);
+      if (errors.length > 0) {
+        throw new Error(errors[0].message || 'Failed to create some reservations');
       }
-      
+
       // Find the guest details
       const selectedGuest = guests.find(g => g.guest_id === form.guestId);
       
       // Prepare complete reservation data
-      const completeReservation = {
+      const completeReservations = results.map((result, index) => ({
         ...result.data,
         reservation_id: result.data.reservation_id,
         guest_id: form.guestId,
@@ -329,22 +283,20 @@ const CreateReservationForm = ({ onClose, onSave }) => {
           email: selectedGuest?.email || '',
           phone: selectedGuest?.phone || ''
         },
-        room_id: form.roomId,
-        room_number: form.roomNumber,
+        room: form.selectedRooms[index],
         special_requests: form.specialRequests,
         check_in: form.checkIn,
         check_out: form.checkOut,
         status: form.status,
         adults: form.adults,
         children: form.children,
-        additional_guests: additionalGuests,
         formatted_check_in: form.checkIn.toISOString().split('T')[0],
         formatted_check_out: form.checkOut.toISOString().split('T')[0],
         formatted_created_at: new Date().toISOString().split('T')[0]
-      };
+      }));
 
-      // Call onSave and wait for it to complete
-      await onSave(completeReservation);
+      // Call onSave for each created reservation
+      await Promise.all(completeReservations.map(res => onSave(res)));
       
       // Reset form and close
       resetForm();
@@ -462,7 +414,7 @@ const CreateReservationForm = ({ onClose, onSave }) => {
 
           {/* Room Selection */}
           <div className="relative mt-6" ref={roomDropdownRef}>
-            <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Select Room *</label>
+            <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Select Rooms *</label>
             <div className="relative">
               <button
                 type="button"
@@ -471,9 +423,9 @@ const CreateReservationForm = ({ onClose, onSave }) => {
                 disabled={isSubmitting || loadingAvailability || !form.checkIn || !form.checkOut}
               >
                 <span>
-                  {form.roomNumber ? `Room ${form.roomNumber}` : 
+                  {form.selectedRooms.length > 0 ? `${form.selectedRooms.length} room(s) selected` : 
                    !form.checkIn || !form.checkOut ? 'Select dates first' :
-                   loadingAvailability ? 'Checking availability...' : 'Select room'}
+                   loadingAvailability ? 'Checking availability...' : 'Select rooms'}
                 </span>
                 <span>▼</span>
               </button>
@@ -486,25 +438,60 @@ const CreateReservationForm = ({ onClose, onSave }) => {
                       {!form.checkIn || !form.checkOut ? 'Select dates first' : 'No available rooms for selected dates'}
                     </div>
                   ) : (
-                    availableRooms.map(room => (
-                      <div 
-                        key={room.room_id} 
-                        className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
-                        onClick={() => selectRoom(room)}
-                      >
-                        <div className="font-medium">Room {room.room_number}</div>
-                        <div className="text-sm text-gray-600">
-                          {room.type.name} - ${room.type.base_price} | Capacity: {room.type.capacity}
+                    availableRooms.map(room => {
+                      const isSelected = form.selectedRooms.some(r => r.id === room.id);
+                      return (
+                        <div 
+                          key={room.id} 
+                          className={`px-3 py-2 cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-100'}`}
+                          onClick={() => toggleRoomSelection(room)}
+                        >
+                          <div className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="mr-2"
+                            />
+                            <div>
+                              <div className="font-medium">Room {room.number}</div>
+                              <div className="text-sm text-gray-600">
+                                {room.type.name} - ${room.pricing.base_price} | Capacity: {room.type.capacity}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {room.amenities?.map(a => a.name).join(', ')}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {room.amenities?.map(a => a.name).join(', ')}
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
             </div>
+            {form.selectedRooms.length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs font-medium mb-1">Selected Rooms:</div>
+                <div className="flex flex-wrap gap-2">
+                  {form.selectedRooms.map(room => (
+                    <div 
+                      key={room.id} 
+                      className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded flex items-center"
+                    >
+                      {room.number}
+                      <button
+                        type="button"
+                        onClick={() => toggleRoomSelection(room)}
+                        className="ml-1 text-blue-600 hover:text-blue-800"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Date Pickers */}
@@ -567,88 +554,6 @@ const CreateReservationForm = ({ onClose, onSave }) => {
               placeholder="Any special requests"
               disabled={isSubmitting}
             />
-          </div>
-
-          {/* Additional Guests */}
-          <div className="md:col-span-2">
-            <h3 className="text-sm font-medium mb-2">Additional Guests</h3>
-            {additionalGuests.map((guest, index) => (
-              <div key={index} className="flex items-center mb-2">
-                <div className="flex-1 bg-gray-100 p-2 rounded">
-                  <div className="text-sm">{guest.name}</div>
-                  <div className="text-xs text-gray-500">
-                    {guest.id_type}: {guest.id_number} | {guest.email} | {guest.phone}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveAdditionalGuest(index)}
-                  className="ml-2 text-red-500 hover:text-red-700"
-                  disabled={isSubmitting}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-
-            <div className="grid grid-cols-1 gap-2 mt-2">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={newAdditionalGuest.name}
-                  onChange={(e) => handleAdditionalGuestChange(e, 'name')}
-                  className={sharedClasses}
-                  placeholder="Guest name"
-                  disabled={isSubmitting}
-                />
-                <select
-                  value={newAdditionalGuest.id_type}
-                  onChange={(e) => handleAdditionalGuestChange(e, 'id_type')}
-                  className={sharedClasses}
-                  disabled={isSubmitting}
-                >
-                  <option value="Passport">Passport</option>
-                  <option value="ID Card">ID Card</option>
-                  <option value="Driver License">Driver License</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={newAdditionalGuest.id_number}
-                  onChange={(e) => handleAdditionalGuestChange(e, 'id_number')}
-                  className={sharedClasses}
-                  placeholder="ID Number"
-                  disabled={isSubmitting}
-                />
-                <input
-                  type="email"
-                  value={newAdditionalGuest.email}
-                  onChange={(e) => handleAdditionalGuestChange(e, 'email')}
-                  className={sharedClasses}
-                  placeholder="Email"
-                  disabled={isSubmitting}
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-2">
-                <input
-                  type="tel"
-                  value={newAdditionalGuest.phone}
-                  onChange={(e) => handleAdditionalGuestChange(e, 'phone')}
-                  className={sharedClasses}
-                  placeholder="Phone"
-                  disabled={isSubmitting}
-                />
-                <button
-                  type="button"
-                  onClick={handleAddAdditionalGuest}
-                  className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-                  disabled={isSubmitting}
-                >
-                  Add Guest
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Submit Button */}

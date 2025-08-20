@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
-import { FaCheck, FaSignOutAlt, FaBed, FaClipboardList, FaMoneyBillWave } from "react-icons/fa";
-import { FiCalendar } from "react-icons/fi";
+import { 
+  FaCheck, 
+  FaSignOutAlt, 
+  FaBed, 
+  FaClipboardList, 
+  FaMoneyBillWave,
+  FaCalendarAlt
+} from "react-icons/fa";
 import axios from "axios";
 
 const Overview = () => {
   const [dateRange, setDateRange] = useState({
-    from: "",
-    to: ""
+    from: new Date().toISOString().split('T')[0],
+    to: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
   const [stats, setStats] = useState({
     checkIn: 0,
@@ -16,133 +22,188 @@ const Overview = () => {
     revenue: 0,
     totalRooms: 0,
   });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (dateRange.from && dateRange.to) {
-      // Fetch available rooms for the date range
-      axios
-        .get(`http://localhost:5001/api/rooms/availability/check`, {
-          params: {
-            from: dateRange.from,
-            to: dateRange.to
-          }
-        })
-        .then((res) => {
-          const availableRooms = res.data.data.filter(room => room.availability === "available");
-          setStats((prev) => ({
-            ...prev,
-            available: availableRooms.length,
-            totalRooms: res.data.data.length, // Total rooms is the length of all rooms returned
-          }));
-        })
-        .catch((err) => {
-          console.error("Failed to fetch available rooms:", err);
-        });
+    const fetchData = async () => {
+      if (dateRange.from && dateRange.to) {
+        setLoading(true);
+        try {
+          // Fetch available rooms for the date range
+          const availabilityResponse = await axios.get(
+            `http://localhost:5000/api/reservations/availability/rooms`,
+            {
+              params: {
+                check_in: dateRange.from,
+                check_out: dateRange.to
+              }
+            }
+          );
+          
+          // Fetch reservation stats for the date range
+          const reservationsResponse = await axios.get(
+            `http://localhost:5000/api/reservations`,
+            {
+              params: {
+                from: dateRange.from,
+                to: dateRange.to
+              }
+            }
+          );
+          
+          const availabilityData = availabilityResponse.data;
+          const reservationsData = reservationsResponse.data;
+          
+          if (availabilityData.success && reservationsData.success) {
+            const reservations = reservationsData.data.reservations;
+            
+            // Calculate stats from reservations
+            const checkIns = reservations.filter(r => 
+              r.status === 'confirmed' && r.check_in === dateRange.from
+            ).length;
+            
+            const checkOuts = reservations.filter(r => 
+              r.status === 'confirmed' && r.check_out === dateRange.to
+            ).length;
+            
+            const reserved = reservations.filter(r => 
+              r.status === 'confirmed' && 
+              new Date(r.check_in) <= new Date(dateRange.to) && 
+              new Date(r.check_out) >= new Date(dateRange.from)
+            ).length;
+            
+            const revenue = reservations
+              .filter(r => r.status === 'confirmed')
+              .reduce((sum, r) => sum + parseFloat(r.total_amount || 0), 0);
 
-      // Fetch reservation stats for the date range
-      axios
-        .get(`http://localhost:5001/api/reservations`, {
-          params: {
-            from: dateRange.from,
-            to: dateRange.to
+            setStats({
+              checkIn: checkIns,
+              checkOut: checkOuts,
+              available: availabilityData.data.meta.total_available,
+              totalRooms: availabilityData.data.rooms.length + availabilityData.data.meta.total_available,
+              reserved: reserved,
+              revenue: revenue,
+            });
           }
-        })
-        .then((res) => {
-          const statsFromServer = res.data.stats || {};
-          setStats((prev) => ({
-            ...prev,
-            checkIn: statsFromServer.checkIn || 0,
-            checkOut: statsFromServer.checkOut || 0,
-            reserved: statsFromServer.reserved || 0,
-            revenue: statsFromServer.revenue || 0,
-          }));
-        })
-        .catch((err) => {
-          console.error("Failed to fetch reservation stats:", err);
-        });
-    }
+        } catch (err) {
+          console.error("Failed to fetch data:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchData();
   }, [dateRange]);
 
   const overviewData = [
     {
       title: "Check-ins",
       value: stats.checkIn,
-      color: "bg-green-100",
-      textColor: "text-green-800",
-      icon: <FaCheck className="text-2xl" />,
+      color: "bg-green-50 border-l-4 border-green-500",
+      textColor: "text-green-700",
+      icon: <FaCheck className="text-xl text-green-500" />,
     },
     {
       title: "Check-outs",
       value: stats.checkOut,
-      color: "bg-red-100",
-      textColor: "text-red-800",
-      icon: <FaSignOutAlt className="text-2xl" />,
+      color: "bg-red-50 border-l-4 border-red-500",
+      textColor: "text-red-700",
+      icon: <FaSignOutAlt className="text-xl text-red-500" />,
     },
     {
-      title: "Rooms Available",
+      title: "Available Rooms",
       value: `${stats.available}/${stats.totalRooms}`,
-      color: "bg-blue-100",
-      textColor: "text-blue-800",
-      icon: <FaBed className="text-2xl" />,
+      color: "bg-blue-50 border-l-4 border-blue-500",
+      textColor: "text-blue-700",
+      icon: <FaBed className="text-xl text-blue-500" />,
     },
     {
-      title: "Rooms Reserved",
+      title: "Reserved Rooms",
       value: stats.reserved,
-      color: "bg-yellow-100",
-      textColor: "text-yellow-800",
-      icon: <FaClipboardList className="text-2xl" />,
+      color: "bg-amber-50 border-l-4 border-amber-500",
+      textColor: "text-amber-700",
+      icon: <FaClipboardList className="text-xl text-amber-500" />,
     },
     {
       title: "Total Revenue",
       value: `$${stats.revenue.toLocaleString()}`,
-      color: "bg-purple-100",
-      textColor: "text-purple-800",
-      icon: <FaMoneyBillWave className="text-2xl" />,
+      color: "bg-purple-50 border-l-4 border-purple-500",
+      textColor: "text-purple-700",
+      icon: <FaMoneyBillWave className="text-xl text-purple-500" />,
     },
   ];
 
   return (
-    <div className="relative px-8 py-6">
-      <div className="flex justify-between items-center mb-8 max-w-screen-xl mx-auto">
-        <h2 className="text-2xl font-semibold text-blue-600">Overview</h2>
-        <div className="flex space-x-2">
-          <label className="flex items-center border border-gray-300 rounded-md px-4 py-2 bg-white text-gray-500 shadow-sm cursor-pointer hover:shadow-md transition">
-            <FiCalendar className="mr-2 text-lg" />
+    <div className="w-full px-4 py-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6">
+        <div>
+          <h2 className="text-2xl font-semibold text-gray-800">Overview</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            Key metrics for your property
+          </p>
+        </div>
+        
+        {/* Date Range Selector */}
+        <div className="flex items-center mt-4 md:mt-0">
+          <div className="flex items-center bg-white rounded-lg border border-gray-200 p-2 shadow-sm">
+            <FaCalendarAlt className="text-gray-400 mr-2" />
             <input
               type="date"
               value={dateRange.from}
               onChange={(e) => setDateRange(prev => ({...prev, from: e.target.value}))}
-              className="bg-transparent outline-none text-sm w-full"
+              className="bg-transparent outline-none text-sm w-32"
             />
-          </label>
-          <span className="flex items-center">to</span>
-          <label className="flex items-center border border-gray-300 rounded-md px-4 py-2 bg-white text-gray-500 shadow-sm cursor-pointer hover:shadow-md transition">
-            <FiCalendar className="mr-2 text-lg" />
+          </div>
+          <span className="mx-3 text-gray-500">to</span>
+          <div className="flex items-center bg-white rounded-lg border border-gray-200 p-2 shadow-sm">
+            <FaCalendarAlt className="text-gray-400 mr-2" />
             <input
               type="date"
               value={dateRange.to}
               onChange={(e) => setDateRange(prev => ({...prev, to: e.target.value}))}
-              className="bg-transparent outline-none text-sm w-full"
+              className="bg-transparent outline-none text-sm w-32"
             />
-          </label>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-screen-xl mx-auto">
-        <div className="grid grid-cols-5 gap-6 w-full">
-          {overviewData.map((item, index) => (
-            <div
-              key={index}
-              className={`p-6 rounded-xl shadow-md flex items-center justify-between ${item.color} hover:shadow-lg transition min-w-0`}
-            >
-              <div className="min-w-0">
-                <h3 className={`text-xl font-bold ${item.textColor}`}>{item.value}</h3>
-                <p className="text-gray-600 truncate">{item.title}</p>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {overviewData.map((item, index) => (
+          <div
+            key={index}
+            className={`p-5 rounded-lg ${item.color} transition-all hover:shadow-md`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className={`text-2xl font-bold ${item.textColor}`}>
+                  {loading ? "-" : item.value}
+                </h3>
+                <p className="text-gray-600 text-sm mt-1">{item.title}</p>
               </div>
-              <div className={`text-2xl ${item.textColor} ml-4`}>{item.icon}</div>
+              <div className={`p-2 rounded-full bg-white shadow-sm`}>
+                {item.icon}
+              </div>
             </div>
-          ))}
-        </div>
+            
+            {/* Progress indicator for available rooms */}
+            {item.title === "Available Rooms" && !loading && (
+              <div className="mt-4">
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-blue-500 h-2 rounded-full" 
+                    style={{ width: `${(stats.available / stats.totalRooms) * 100}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {Math.round((stats.available / stats.totalRooms) * 100)}% occupancy
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

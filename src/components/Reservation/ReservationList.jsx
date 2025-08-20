@@ -27,6 +27,7 @@ const ReservationList = () => {
   const [error, setError] = useState(null);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [viewMode, setViewMode] = useState('list');
+  const [actionLoading, setActionLoading] = useState(false);
   const retryCountRef = useRef(0);
   const isMountedRef = useRef(true);
 
@@ -105,28 +106,17 @@ const ReservationList = () => {
     setError(null);
 
     try {
-      const reservationsData = await fetchData(API_ENDPOINTS.RESERVATIONS);
+      const [reservationsData, guestsData, roomsData] = await Promise.all([
+        fetchData(API_ENDPOINTS.RESERVATIONS),
+        fetchData(API_ENDPOINTS.GUESTS),
+        fetchData(API_ENDPOINTS.ROOMS)
+      ]);
+
       const normalizedReservations = normalizeData(reservationsData);
 
-      const uniqueGuests = [];
-      const uniqueRooms = [];
-      const guestIds = new Set();
-      const roomIds = new Set();
-
-      normalizedReservations.forEach(reservation => {
-        if (reservation.guest && !guestIds.has(reservation.guest.guest_id)) {
-          guestIds.add(reservation.guest.guest_id);
-          uniqueGuests.push(reservation.guest);
-        }
-        if (reservation.room && !roomIds.has(reservation.room.room_id)) {
-          roomIds.add(reservation.room.room_id);
-          uniqueRooms.push(reservation.room);
-        }
-      });
-
       if (isMountedRef.current) {
-        setGuests(uniqueGuests);
-        setRooms(uniqueRooms);
+        setGuests(guestsData.data || guestsData);
+        setRooms(roomsData.data || roomsData);
         setReservations(processReservations(normalizedReservations));
         retryCountRef.current = 0;
       }
@@ -163,40 +153,6 @@ const ReservationList = () => {
     setError(null);
     
     try {
-      const optimisticReservation = {
-        ...newReservation,
-        id: `temp-${Date.now()}`,
-        status: 'confirmed',
-        createdAt: new Date().toISOString(),
-        formattedCreatedAt: formatDate(new Date()),
-        formattedCheckIn: formatDate(newReservation.checkIn),
-        formattedCheckOut: formatDate(newReservation.checkOut),
-        guestDetails: {
-          name: newReservation.guestName,
-          email: newReservation.guestDetails?.email || 'N/A',
-          phone: newReservation.guestDetails?.phone || 'N/A',
-          address: 'N/A',
-          nationalId: 'N/A'
-        },
-        roomNumber: newReservation.roomNumber,
-        roomType: newReservation.roomType || 'Standard',
-        duration: `${calculateNights(newReservation.checkIn, newReservation.checkOut)} nights`,
-        totalAmount: 0,
-        paidAmount: 0,
-        balance: 0,
-        paymentMethod: 'Credit Card',
-        roomDetails: {
-          id: newReservation.roomId,
-          number: newReservation.roomNumber,
-          type: newReservation.roomType || 'Standard',
-          price: 0,
-          total: 0
-        },
-        amenities: []
-      };
-
-      setReservations(prev => [optimisticReservation, ...prev]);
-      
       const response = await fetch(API_ENDPOINTS.RESERVATIONS, {
         method: 'POST',
         headers: {
@@ -220,23 +176,141 @@ const ReservationList = () => {
       }
 
       const result = await response.json();
+      const processedReservation = processReservations([result.data])[0];
       
-      setReservations(prev => {
-        const updated = [...prev];
-        const index = updated.findIndex(r => r.id === optimisticReservation.id);
-        if (index !== -1) {
-          updated[index] = processReservations([result.data])[0];
-        }
-        return updated;
-      });
+      setReservations(prev => [processedReservation, ...prev]);
+      
+      if (result.data.guest && !guests.some(g => g.guest_id === result.data.guest.guest_id)) {
+        setGuests(prev => [...prev, result.data.guest]);
+      }
+      
+      if (result.data.room && !rooms.some(r => r.room_id === result.data.room.room_id)) {
+        setRooms(prev => [...prev, result.data.room]);
+      }
 
       setShowForm(false);
     } catch (err) {
       console.error("Create reservation error:", err);
-      setReservations(prev => prev.filter(r => r.id !== `temp-${Date.now()}`));
       setError(err.message || 'Failed to create reservation');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateStatus = async (reservationId, newStatus) => {
+    setActionLoading(true);
+    try {
+      const response = await fetch(`${API_ENDPOINTS.RESERVATIONS}/${reservationId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update reservation status');
+      }
+
+      const result = await response.json();
+      
+      setReservations(prev => 
+        prev.map(res => 
+          res.id === reservationId 
+            ? { ...res, status: newStatus.toLowerCase() } 
+            : res
+        )
+      );
+
+      // If viewing details, update the selected reservation as well
+      if (selectedReservation?.id === reservationId) {
+        setSelectedReservation(prev => ({
+          ...prev,
+          status: newStatus.toLowerCase()
+        }));
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Update status error:", err);
+      setError(err.message || 'Failed to update status');
+      return false;
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCancelReservation = async (reservationId) => {
+    setActionLoading(true);
+    try {
+      const response = await fetch(`${API_ENDPOINTS.RESERVATIONS}/${reservationId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to cancel reservation');
+      }
+
+      const result = await response.json();
+      
+      setReservations(prev => 
+        prev.map(res => 
+          res.id === reservationId 
+            ? { ...res, status: 'cancelled' } 
+            : res
+        )
+      );
+
+      // If viewing details, update the selected reservation as well
+      if (selectedReservation?.id === reservationId) {
+        setSelectedReservation(prev => ({
+          ...prev,
+          status: 'cancelled'
+        }));
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Cancel reservation error:", err);
+      setError(err.message || 'Failed to cancel reservation');
+      return false;
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteReservation = async (reservationId) => {
+    setActionLoading(true);
+    try {
+      const response = await fetch(`${API_ENDPOINTS.RESERVATIONS}/${reservationId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete reservation');
+      }
+
+      setReservations(prev => prev.filter(res => res.id !== reservationId));
+      
+      // If viewing details of the deleted reservation, go back to list
+      if (selectedReservation?.id === reservationId) {
+        setSelectedReservation(null);
+        setViewMode('list');
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Delete reservation error:", err);
+      setError(err.message || 'Failed to delete reservation');
+      return false;
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -269,7 +343,8 @@ const ReservationList = () => {
         ? searchFields.includes(searchTerm.toLowerCase()) 
         : true;
       
-      const matchesStatus = !statusFilter.value || reservation.status === statusFilter.value;
+      const matchesStatus = !statusFilter.value || 
+        (statusFilter.value === 'all' ? true : reservation.status === statusFilter.value);
       
       const matchesDate = !dateFilter || (
         new Date(reservation.checkIn) <= dateFilter && 
@@ -288,6 +363,10 @@ const ReservationList = () => {
             selectedReservation={selectedReservation}
             handleBackToList={handleBackToList}
             handleViewInvoice={handleViewInvoice}
+            onUpdateStatus={handleUpdateStatus}
+            onCancelReservation={handleCancelReservation}
+            onDeleteReservation={handleDeleteReservation}
+            actionLoading={actionLoading}
           />
         );
       case 'invoice':
@@ -311,6 +390,10 @@ const ReservationList = () => {
             <ReservationTable
               reservations={filteredReservations}
               handleViewDetails={handleViewDetails}
+              onUpdateStatus={handleUpdateStatus}
+              onCancelReservation={handleCancelReservation}
+              onDeleteReservation={handleDeleteReservation}
+              actionLoading={actionLoading}
             />
           </>
         );
@@ -330,12 +413,12 @@ const ReservationList = () => {
               setStatusFilter={setStatusFilter}
               dateFilter={dateFilter}
               setDateFilter={setDateFilter}
-              loading={loading}
+              loading={loading || actionLoading}
             />
             <button
               onClick={() => setShowForm(true)}
               className="h-10 flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-md text-sm"
-              disabled={loading}
+              disabled={loading || actionLoading}
             >
               <span className="text-lg">+</span> Add Booking
             </button>

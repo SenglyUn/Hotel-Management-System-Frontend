@@ -141,7 +141,7 @@ const SignupForm = () => {
                       value={formData.firstName}
                       onChange={handleChange}
                       className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Moly"
+                      placeholder="Sengly"
                       required
                     />
                   </div>
@@ -161,7 +161,7 @@ const SignupForm = () => {
                       value={formData.lastName}
                       onChange={handleChange}
                       className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Lin"
+                      placeholder="Un"
                       required
                     />
                   </div>
@@ -184,7 +184,7 @@ const SignupForm = () => {
                     value={formData.email}
                     onChange={handleChange}
                     className="block w-full pl-12 pr-4 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="moly@gmail.com"
+                    placeholder="sengly@gmail.com"
                     required
                   />
                 </div>
@@ -206,7 +206,7 @@ const SignupForm = () => {
                     value={formData.password}
                     onChange={handleChange}
                     className="block w-full pl-12 pr-12 py-3 text-lg border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="moly@123"
+                    placeholder="sengly@123"
                     required
                     minLength="6"
                   />

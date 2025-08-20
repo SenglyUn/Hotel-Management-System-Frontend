@@ -18,7 +18,8 @@ import GuestBlacklist from "./components/Guest/GuestBlacklist";
 import ImportGuestList from "./components/Guest/ImportGuestList";
 import RoomClean from "./components/AdminPage/RoomClean";
 import QuickAction from "./components/AdminPage/QuickAction";
-import LandingPage from "./components/HomePage/LandingPage";
+// import LandingPage from "./components/HomePage/LandingPage";
+import LandingPage from "./components/LandingPage/LandingPage";
 import NotFoundPage from "./components/HomePage/NotFoundPage";
 import MessagePage from "./components/Message/Message";
 import RestaurantPage from "./components/Restaurant/Restaurant";
@@ -30,10 +31,14 @@ import ExploreRooms from "./components/HomePage/ExploreRooms";
 import InvoiceShow from "./components/Payment/InvoiceViewer";
 import UnauthorizedPage from "./components/HomePage/UnauthorizedPage";
 
+// User Management
+import Users from "./components/User Management/Users"; // Add this import
+
 // Protected Routes
 import AdminProtectedRoute from "./components/context/AdminProtectedRoute";
 import StaffProtectedRoute from "./components/context/StaffProtectedRoute";
 // import ProtectedRoute from "./components/Authentication/ProtectedRoute";
+
 const App = () => {
   return (
     <AuthProvider>
@@ -68,6 +73,7 @@ const App = () => {
                 <Route path="/restaurant" element={<RestaurantPage />} />
                 <Route path="/parking" element={<ParkingManagement />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/users" element={<Users />} /> {/* Add this route for User Management */}
               </Route>
 
               <Route path="/invoices/:id" element={<InvoiceShow />} />

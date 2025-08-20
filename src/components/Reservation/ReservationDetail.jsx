@@ -18,7 +18,7 @@ const ReservationDetail = ({
         if (!selectedReservation?.id) return;
         
         setLoading(true);
-        const response = await fetch('http://localhost:5001/api/invoices');
+        const response = await fetch('http://localhost:5000/api/invoices');
         const data = await response.json();
         
         if (data.success) {

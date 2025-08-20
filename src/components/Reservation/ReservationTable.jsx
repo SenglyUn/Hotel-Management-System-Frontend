@@ -1,9 +1,39 @@
 import React from 'react';
-import { FiEye, FiEdit2, FiChevronUp, FiChevronDown } from 'react-icons/fi';
+import { FiEye, FiEdit2, FiChevronUp, FiChevronDown, FiTrash2 } from 'react-icons/fi';
 import { statusColors, actionStyles } from './constants';
 import { formatDateRange } from './utils';
 
-const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
+const ReservationTable = ({ 
+  reservations, 
+  handleViewDetails, 
+  onStatusChange,
+  onCancelReservation,
+  onDeleteReservation,
+  loading,
+  actionLoadingId
+}) => {
+  const handleActionClick = (reservation) => {
+    if (reservation.status === 'confirmed') {
+      onStatusChange(reservation.id, 'checked_in');
+    } else if (reservation.status === 'checked_in') {
+      onStatusChange(reservation.id, 'checked_out');
+    } else if (reservation.status === 'checked_out') {
+      onStatusChange(reservation.id, 'confirmed');
+    }
+  };
+
+  const handleCancelClick = (reservationId) => {
+    if (window.confirm('Are you sure you want to cancel this reservation?')) {
+      onCancelReservation(reservationId);
+    }
+  };
+
+  const handleDeleteClick = (reservationId) => {
+    if (window.confirm('Are you sure you want to permanently delete this cancelled reservation?')) {
+      onDeleteReservation(reservationId);
+    }
+  };
+
   return (
     <div className="bg-white shadow-md rounded-lg overflow-hidden">
       <div className="grid grid-cols-7 gap-3 px-6 py-3 border-b font-semibold bg-gray-50 text-gray-700 text-[13px]">
@@ -38,6 +68,9 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
                         reservation.room?.room_type?.name || 
                         'Standard';
 
+        const isActionLoading = actionLoadingId === reservation.id;
+        const isCancelled = reservation.status === 'cancelled';
+
         return (
           <div
             key={reservation.reservation_id || reservation.id}
@@ -54,7 +87,7 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
               </div>
             </div>
 
-            {/* Room Column - Updated to show room number in parentheses */}
+            {/* Room Column */}
             <div className="flex flex-col">
               <span className="text-[12px]">
                 {roomType} ({roomNumber})
@@ -82,15 +115,17 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
               )}
             </div>
 
-            {/* Status Column */}
+            {/* Status Column - Now clickable */}
             <div>
-              <span
+              <button
+                onClick={() => !isCancelled && onStatusChange(reservation.id, getNextStatus(reservation.status))}
+                disabled={isCancelled || isActionLoading}
                 className={`px-3 py-1 rounded-md border text-xs font-semibold ${
                   statusColors[reservation.status] || 'bg-gray-100 text-gray-600 border-gray-300'
-                }`}
+                } ${!isCancelled ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
               >
                 {reservation.status?.charAt(0).toUpperCase() + reservation.status?.slice(1)}
-              </span>
+              </button>
             </div>
 
             {/* Action Column */}
@@ -99,23 +134,53 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
                 onClick={() => handleViewDetails(reservation)}
                 className="p-2 text-gray-500 hover:text-gray-700 bg-white border rounded-md"
                 title="View Details"
+                disabled={isActionLoading}
               >
                 <FiEye className="text-sm" />
               </button>
-              <button 
-                className="p-2 text-gray-500 hover:text-gray-700 bg-white border rounded-md"
-                title="Edit"
-              >
-                <FiEdit2 className="text-sm" />
-              </button>
-              <button
-                className={`px-3 py-1 rounded-md text-xs font-medium ${
-                  actionStyles[reservation.status] || 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {reservation.status === 'confirmed' ? 'Check In' : 
-                 reservation.status === 'checked_in' ? 'Check Out' : 'Confirm'}
-              </button>
+              
+              {!isCancelled && (
+                <button 
+                  className="p-2 text-gray-500 hover:text-gray-700 bg-white border rounded-md"
+                  title="Edit"
+                  disabled={isActionLoading}
+                >
+                  <FiEdit2 className="text-sm" />
+                </button>
+              )}
+              
+              {isCancelled ? (
+                <button
+                  onClick={() => handleDeleteClick(reservation.id)}
+                  className="p-2 text-red-500 hover:text-red-700 bg-white border rounded-md"
+                  title="Delete"
+                  disabled={isActionLoading}
+                >
+                  <FiTrash2 className="text-sm" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleActionClick(reservation)}
+                  disabled={isActionLoading}
+                  className={`px-3 py-1 rounded-md text-xs font-medium ${
+                    actionStyles[reservation.status] || 'bg-gray-100 text-gray-600'
+                  } ${isActionLoading ? 'opacity-50' : 'hover:opacity-80'}`}
+                >
+                  {isActionLoading ? 'Processing...' : 
+                   reservation.status === 'confirmed' ? 'Check In' : 
+                   reservation.status === 'checked_in' ? 'Check Out' : 'Confirm'}
+                </button>
+              )}
+              
+              {!isCancelled && (
+                <button
+                  onClick={() => handleCancelClick(reservation.id)}
+                  disabled={isActionLoading}
+                  className="px-3 py-1 rounded-md text-xs font-medium bg-orange-100 text-orange-600 hover:bg-orange-200"
+                >
+                  {isActionLoading ? '...' : 'Cancel'}
+                </button>
+              )}
             </div>
           </div>
         );
@@ -124,13 +189,19 @@ const ReservationTable = ({ reservations, handleViewDetails, loading }) => {
   );
 };
 
-// Helper function if not already imported
+// Helper functions
 function calculateNights(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0;
   const oneDay = 24 * 60 * 60 * 1000;
   const firstDate = new Date(checkIn);
   const secondDate = new Date(checkOut);
   return Math.round(Math.abs((firstDate - secondDate) / oneDay));
+}
+
+function getNextStatus(currentStatus) {
+  const statusFlow = ['confirmed', 'checked_in', 'checked_out'];
+  const currentIndex = statusFlow.indexOf(currentStatus);
+  return statusFlow[(currentIndex + 1) % statusFlow.length];
 }
 
 export default ReservationTable;

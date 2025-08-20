@@ -1,27 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const BookingSystem = () => {
-  const [availableRooms, setAvailableRooms] = useState([]);
-  const [selectedRooms, setSelectedRooms] = useState([]);
-  const [bookingForm, setBookingForm] = useState({
-    guestName: '',
-    checkInDate: '',
-    checkOutDate: '',
-    specialRequests: ''
-  });
+  const [activeTab, setActiveTab] = useState('book');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('book');
+  
+  // State for the booking form
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isGuestDropdownOpen, setIsGuestDropdownOpen] = useState(false);
+  const [guestSearch, setGuestSearch] = useState('');
+  const [loadingGuests, setLoadingGuests] = useState(false);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [guests, setGuests] = useState([]);
+  const [availableRooms, setAvailableRooms] = useState([]);
+  
+  const [bookingForm, setBookingForm] = useState({
+    guestId: null,
+    guestName: '',
+    selectedRooms: [],
+    checkIn: null,
+    checkOut: null,
+    adults: 1,
+    children: 0,
+    specialRequests: '',
+    status: 'confirmed'
+  });
+
+  const guestDropdownRef = useRef(null);
+  const roomDropdownRef = useRef(null);
 
   // Load existing reservations
   useEffect(() => {
     if (activeTab === 'view') {
       setLoading(true);
-      axios.get('http://localhost:5001/api/reservations')
+      axios.get('http://localhost:5000/api/reservations')
         .then((res) => {
-          setBookings(res.data.data || []);
+          if (res.data.success) {
+            setBookings(res.data.data.reservations || []);
+          } else {
+            setError('Failed to fetch bookings: API returned unsuccessful response');
+          }
           setLoading(false);
         })
         .catch((err) => {
@@ -32,123 +54,232 @@ const BookingSystem = () => {
     }
   }, [activeTab]);
 
+  // Fetch initial guest data
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        setLoadingGuests(true);
+        
+        // Fetch guests
+        const guestsResponse = await axios.get('http://localhost:5000/api/guests');
+        setGuests(guestsResponse.data.data || []);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load guest data. Please try again.');
+      } finally {
+        setLoadingGuests(false);
+      }
+    };
+
+    if (activeTab === 'book') {
+      fetchInitialData();
+    }
+  }, [activeTab]);
+
+  // Check room availability when dates change
+  useEffect(() => {
+    const checkRoomAvailability = async () => {
+      if (!bookingForm.checkIn || !bookingForm.checkOut) return;
+      
+      setLoadingAvailability(true);
+      try {
+        const from = bookingForm.checkIn.toISOString().split('T')[0];
+        const to = bookingForm.checkOut.toISOString().split('T')[0];
+        
+        const res = await axios.get(
+          `http://localhost:5000/api/reservations/availability/rooms?check_in=${from}&check_out=${to}&adults=${bookingForm.adults}&children=${bookingForm.children}`
+        );
+        
+        if (!res.data.success) {
+          throw new Error(res.data.message || 'Failed to check availability');
+        }
+        
+        setAvailableRooms(res.data.data.rooms || []);
+      } catch (err) {
+        console.error('Failed to check availability:', err);
+        setError('Failed to check room availability. Please try again.');
+        setAvailableRooms([]);
+      } finally {
+        setLoadingAvailability(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(checkRoomAvailability, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [bookingForm.checkIn, bookingForm.checkOut, bookingForm.adults, bookingForm.children]);
+
+  // Handle click outside dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (guestDropdownRef.current && !guestDropdownRef.current.contains(event.target)) {
+        setIsGuestDropdownOpen(false);
+      }
+      if (roomDropdownRef.current && !roomDropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const handleFormChange = (e) => {
     const { name, value } = e.target;
-    setBookingForm((prev) => ({ ...prev, [name]: value }));
+    setBookingForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const toggleRoomSelection = (roomId) => {
-    setSelectedRooms((prev) =>
-      prev.includes(roomId)
-        ? prev.filter((id) => id !== roomId)
-        : [...prev, roomId]
-    );
+  const handleDateChange = (name, date) => {
+    setBookingForm(prev => ({ ...prev, [name]: date }));
   };
 
-  const handleSearchAvailableRooms = () => {
-    const { checkInDate, checkOutDate } = bookingForm;
-    
-    if (!checkInDate || !checkOutDate) {
-      setError('Please select both check-in and check-out dates first');
-      return;
-    }
+  const toggleRoomSelection = (room) => {
+    setBookingForm(prev => {
+      const isSelected = prev.selectedRooms.some(r => r.id === room.id);
+      
+      if (isSelected) {
+        return {
+          ...prev,
+          selectedRooms: prev.selectedRooms.filter(r => r.id !== room.id)
+        };
+      } else {
+        return {
+          ...prev,
+          selectedRooms: [...prev.selectedRooms, {
+            id: room.id,
+            number: room.number,
+            type: room.type,
+            pricing: room.pricing
+          }]
+        };
+      }
+    });
+  };
 
-    if (new Date(checkInDate) >= new Date(checkOutDate)) {
-      setError('Check-out date must be after check-in date');
-      return;
-    }
+  const selectGuest = (guest) => {
+    setBookingForm({
+      ...bookingForm,
+      guestId: guest.guest_id,
+      guestName: `${guest.first_name} ${guest.last_name}`
+    });
+    setGuestSearch(`${guest.first_name} ${guest.last_name}`);
+    setIsGuestDropdownOpen(false);
+  };
 
-    setLoading(true);
-    setSelectedRooms([]);
-    
-    axios.get(`http://localhost:5001/api/rooms/available?from=${checkInDate}&to=${checkOutDate}`)
-      .then((res) => {
-        setAvailableRooms(res.data.data?.availableRooms || []);
-        setError(null);
-      })
-      .catch((err) => {
-        console.error('Error fetching available rooms:', err);
-        setError('Failed to fetch available rooms. Please try again.');
-        setAvailableRooms([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+  const handleGuestInputChange = (e) => {
+    const value = e.target.value;
+    setGuestSearch(value);
+    if (value !== bookingForm.guestName) {
+      setBookingForm(prev => ({ 
+        ...prev, 
+        guestId: null,
+        guestName: '' 
+      }));
+    }
+    setIsGuestDropdownOpen(true);
+  };
+
+  const clearGuestSelection = () => {
+    setGuestSearch('');
+    setBookingForm(prev => ({ 
+      ...prev, 
+      guestId: null,
+      guestName: '' 
+    }));
+    setIsGuestDropdownOpen(false);
+  };
+
+  const resetForm = () => {
+    setBookingForm({
+      guestId: null,
+      guestName: '',
+      selectedRooms: [],
+      checkIn: null,
+      checkOut: null,
+      adults: 1,
+      children: 0,
+      specialRequests: '',
+      status: 'confirmed'
+    });
+    setGuestSearch('');
+    setError(null);
   };
 
   const handleSubmitReservation = async () => {
-    const { guestName, checkInDate, checkOutDate, specialRequests } = bookingForm;
-    
     setError(null);
+    
+    // Validation
+    if (!bookingForm.guestId) return setError('Please select a valid guest');
+    if (bookingForm.selectedRooms.length === 0) return setError('Please select at least one room');
+    if (!bookingForm.checkIn || !bookingForm.checkOut) return setError('Please select both dates');
+    if (bookingForm.checkOut <= bookingForm.checkIn) return setError('Check-out must be after check-in');
+    if (bookingForm.adults < 1) return setError('At least one adult is required');
 
-    if (!guestName) {
-      setError('Please enter guest name');
-      return;
-    }
-    if (!checkInDate || !checkOutDate) {
-      setError('Please select both check-in and check-out dates');
-      return;
-    }
-    if (new Date(checkInDate) >= new Date(checkOutDate)) {
-      setError('Check-out date must be after check-in date');
-      return;
-    }
-    if (selectedRooms.length === 0) {
-      setError('Please select at least one room');
-      return;
-    }
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const response = await axios.post(
-        'http://localhost:5001/api/reservations',
-        {
-          guest_name: guestName,
-          check_in_date: checkInDate,
-          check_out_date: checkOutDate,
-          special_requests: specialRequests,
-          room_ids: selectedRooms
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
+      // Create payload for each selected room
+      const payloads = bookingForm.selectedRooms.map(room => ({
+        guest_id: bookingForm.guestId,
+        room_id: room.id,
+        check_in: bookingForm.checkIn.toISOString().split('T')[0],
+        check_out: bookingForm.checkOut.toISOString().split('T')[0],
+        adults: parseInt(bookingForm.adults),
+        children: parseInt(bookingForm.children),
+        special_requests: bookingForm.specialRequests,
+        status: bookingForm.status
+      }));
+
+      // Send reservation for each room
+      const results = await Promise.all(
+        payloads.map(payload => 
+          axios.post('http://localhost:5000/api/reservations', payload)
+        )
       );
 
-      if (response.data && response.data.success) {
-        alert('Reservation created successfully!');
-        setSelectedRooms([]);
-        setAvailableRooms([]);
-        setBookingForm({
-          guestName: '',
-          checkInDate: '',
-          checkOutDate: '',
-          specialRequests: ''
-        });
-        setActiveTab('view');
-      } else {
-        setError(response.data?.message || 'Failed to create reservation: Unknown error');
+      // Check for errors
+      const errors = results.filter(result => !result.data.success);
+      if (errors.length > 0) {
+        throw new Error(errors[0].data?.message || 'Failed to create some reservations');
       }
+
+      alert('Reservation created successfully!');
+      resetForm();
+      setActiveTab('view');
+      
     } catch (err) {
-      console.error('Reservation error:', err);
-      let errorMessage = 'Failed to create reservation';
-      
-      if (err.response) {
-        errorMessage = err.response.data?.message || 
-                       err.response.data?.error || 
-                       `Server error: ${err.response.status}`;
-      } else if (err.request) {
-        errorMessage = 'No response from server. Please try again.';
-      } else {
-        errorMessage = err.message || 'Request setup error';
-      }
-      
-      setError(errorMessage);
+      console.error('Error creating reservation:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to create reservation. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  const filteredGuests = guests.filter(guest => {
+    const fullName = `${guest.first_name} ${guest.last_name}`.toLowerCase();
+    return fullName.includes(guestSearch.toLowerCase());
+  });
+
+  const sharedClasses = 'w-full h-[42px] px-3 border rounded-md text-sm focus:outline-none focus:ring focus:border-blue-500';
+
+  const datePickerWithTopLeftLabel = (label, name, selected) => (
+    <div className="relative mt-6">
+      <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">{label}</label>
+      <DatePicker
+        selected={selected}
+        onChange={(date) => handleDateChange(name, date)}
+        className={sharedClasses}
+        placeholderText={`Select ${label.toLowerCase()} date`}
+        dateFormat="yyyy-MM-dd"
+        minDate={name === 'checkOut' ? bookingForm.checkIn : new Date()}
+        selectsStart={name === 'checkIn'}
+        selectsEnd={name === 'checkOut'}
+        startDate={bookingForm.checkIn}
+        endDate={bookingForm.checkOut}
+        disabled={loading}
+      />
+    </div>
+  );
 
   const renderTabContent = () => {
     if (activeTab === 'book') {
@@ -157,139 +288,215 @@ const BookingSystem = () => {
           <h2 className="text-xl font-bold">New Reservation</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Guest Name *</label>
+            {/* Guest Selection */}
+            <div className="relative mt-6" ref={guestDropdownRef}>
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Guest Name *</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={guestSearch}
+                  onChange={handleGuestInputChange}
+                  onFocus={() => setIsGuestDropdownOpen(true)}
+                  className={sharedClasses}
+                  required
+                  placeholder="Select guest"
+                  disabled={loading || loadingGuests}
+                />
+                {guestSearch && (
+                  <button
+                    type="button"
+                    onClick={clearGuestSelection}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    disabled={loading}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              {!bookingForm.guestId && guestSearch && (
+                <div className="text-red-500 text-xs mt-1">
+                  Please select a guest from the dropdown
+                </div>
+              )}
+              {isGuestDropdownOpen && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                  {loadingGuests ? (
+                    <div className="px-3 py-2 text-gray-500">Loading guests...</div>
+                  ) : filteredGuests.length === 0 ? (
+                    <div className="px-3 py-2 text-gray-500">
+                      {guestSearch ? 'No matching guests found' : 'Start typing to search guests'}
+                    </div>
+                  ) : (
+                    filteredGuests.map(guest => (
+                      <div 
+                        key={guest.guest_id} 
+                        className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center"
+                        onClick={() => selectGuest(guest)}
+                      >
+                        <span>{guest.first_name} {guest.last_name}</span>
+                        <span className="text-xs text-gray-500">{guest.email}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Adults and Children */}
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Adults *</label>
               <input
-                type="text"
-                name="guestName"
-                value={bookingForm.guestName}
+                type="number"
+                name="adults"
+                value={bookingForm.adults}
                 onChange={handleFormChange}
-                className="w-full p-2 border rounded"
+                className={sharedClasses}
+                min="1"
                 required
-                placeholder="Enter guest name"
+                disabled={loading}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Check-in Date *</label>
+
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Children</label>
               <input
-                type="date"
-                name="checkInDate"
-                value={bookingForm.checkInDate}
+                type="number"
+                name="children"
+                value={bookingForm.children}
                 onChange={handleFormChange}
-                className="w-full p-2 border rounded"
-                min={new Date().toISOString().split('T')[0]}
-                required
+                className={sharedClasses}
+                min="0"
+                disabled={loading}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Check-out Date *</label>
-              <input
-                type="date"
-                name="checkOutDate"
-                value={bookingForm.checkOutDate}
+
+            {/* Date Pickers */}
+            {datePickerWithTopLeftLabel('Check-In *', 'checkIn', bookingForm.checkIn)}
+            {datePickerWithTopLeftLabel('Check-Out *', 'checkOut', bookingForm.checkOut)}
+
+            {/* Status */}
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Status</label>
+              <select
+                value={bookingForm.status}
                 onChange={handleFormChange}
-                className="w-full p-2 border rounded"
-                min={bookingForm.checkInDate || new Date().toISOString().split('T')[0]}
-                required
-              />
+                name="status"
+                className={sharedClasses}
+                disabled={loading}
+              >
+                <option value="confirmed">Confirmed</option>
+                <option value="pending">Pending</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Special Requests</label>
+
+            {/* Special Request */}
+            <div className="relative mt-6">
+              <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Special Request</label>
               <input
                 type="text"
                 name="specialRequests"
                 value={bookingForm.specialRequests}
                 onChange={handleFormChange}
-                className="w-full p-2 border rounded"
-                placeholder="Any special requirements"
+                className={sharedClasses}
+                placeholder="Any special requests"
+                disabled={loading}
               />
             </div>
           </div>
 
-          <button
-            onClick={handleSearchAvailableRooms}
-            disabled={!bookingForm.checkInDate || !bookingForm.checkOutDate || loading}
-            className={`px-4 py-2 mt-2 text-white rounded ${
-              !bookingForm.checkInDate || !bookingForm.checkOutDate || loading
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 hover:bg-blue-600'
-            }`}
-          >
-            {loading ? 'Searching...' : 'Search Available Rooms'}
-          </button>
-
-          {availableRooms.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-lg font-semibold mb-4">Available Rooms</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {availableRooms.map((room) => (
-                  <div
-                    key={room.id}
-                    className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                      selectedRooms.includes(room.id)
-                        ? 'border-2 border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                    onClick={() => toggleRoomSelection(room.id)}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium">{room.name}</h4>
-                        <p className="text-sm text-gray-600">{room.type}</p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={selectedRooms.includes(room.id)}
-                        readOnly
-                        className="h-5 w-5 text-blue-600 rounded focus:ring-blue-500"
-                      />
+          {/* Room Selection */}
+          <div className="relative mt-6" ref={roomDropdownRef}>
+            <label className="absolute -top-2 left-3 z-10 bg-white px-1 text-xs">Select Rooms *</label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className={`${sharedClasses} text-left flex justify-between items-center`}
+                disabled={loading || loadingAvailability || !bookingForm.checkIn || !bookingForm.checkOut}
+              >
+                <span>
+                  {bookingForm.selectedRooms.length > 0 ? `${bookingForm.selectedRooms.length} room(s) selected` : 
+                   !bookingForm.checkIn || !bookingForm.checkOut ? 'Select dates first' :
+                   loadingAvailability ? 'Checking availability...' : 'Select rooms'}
+                </span>
+                <span>▼</span>
+              </button>
+              {isDropdownOpen && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                  {loadingAvailability ? (
+                    <div className="px-3 py-2 text-gray-500">Checking room availability...</div>
+                  ) : availableRooms.length === 0 ? (
+                    <div className="px-3 py-2 text-gray-500">
+                      {!bookingForm.checkIn || !bookingForm.checkOut ? 'Select dates first' : 'No available rooms for selected dates'}
                     </div>
-                    <div className="mt-2 text-sm">
-                      <p>Price: ${room.price}/night</p>
-                      <p>Capacity: {room.capacity} person(s)</p>
-                      {room.amenities && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Amenities: {room.amenities.join(', ')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              {selectedRooms.length > 0 && (
-                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                  <p className="font-medium">Selected Rooms: {selectedRooms.length}</p>
-                  <ul className="mt-1 list-disc list-inside">
-                    {availableRooms
-                      .filter(room => selectedRooms.includes(room.id))
-                      .map(room => (
-                        <li key={room.id} className="text-sm">
-                          {room.name} (${room.price}/night)
-                        </li>
-                      ))}
-                  </ul>
-                  <p className="mt-2 font-medium">
-                    Total: ${availableRooms
-                      .filter(room => selectedRooms.includes(room.id))
-                      .reduce((sum, room) => sum + room.price, 0)}
-                  </p>
+                  ) : (
+                    availableRooms.map(room => {
+                      const isSelected = bookingForm.selectedRooms.some(r => r.id === room.id);
+                      return (
+                        <div 
+                          key={room.id} 
+                          className={`px-3 py-2 cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-100'}`}
+                          onClick={() => toggleRoomSelection(room)}
+                        >
+                          <div className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="mr-2"
+                            />
+                            <div>
+                              <div className="font-medium">Room {room.number}</div>
+                              <div className="text-sm text-gray-600">
+                                {room.type.name} - {room.pricing.currency} {room.pricing.total} | Capacity: {room.type.capacity}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {room.amenities?.map(a => a.name).join(', ')}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               )}
             </div>
-          )}
-
-          {availableRooms.length === 0 && bookingForm.checkInDate && bookingForm.checkOutDate && !loading && (
-            <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
-              <p>No rooms available for selected dates</p>
-            </div>
-          )}
+            {bookingForm.selectedRooms.length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs font-medium mb-1">Selected Rooms:</div>
+                <div className="flex flex-wrap gap-2">
+                  {bookingForm.selectedRooms.map(room => (
+                    <div 
+                      key={room.id} 
+                      className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded flex items-center"
+                    >
+                      {room.number}
+                      <button
+                        type="button"
+                        onClick={() => toggleRoomSelection(room)}
+                        className="ml-1 text-blue-600 hover:text-blue-800"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 font-medium">
+                  Total: {bookingForm.selectedRooms
+                    .reduce((sum, room) => sum + parseFloat(room.pricing.total || room.pricing.base_price || 0), 0)
+                    .toFixed(2)}
+                </div>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={handleSubmitReservation}
-            disabled={selectedRooms.length === 0 || loading}
+            disabled={bookingForm.selectedRooms.length === 0 || loading}
             className={`mt-6 px-6 py-3 rounded-md text-white font-medium w-full ${
-              selectedRooms.length === 0 || loading
+              bookingForm.selectedRooms.length === 0 || loading
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
@@ -303,7 +510,7 @@ const BookingSystem = () => {
                 Processing...
               </span>
             ) : (
-              `Create Reservation (${selectedRooms.length} ${selectedRooms.length === 1 ? 'room' : 'rooms'} selected)`
+              `Create Reservation (${bookingForm.selectedRooms.length} ${bookingForm.selectedRooms.length === 1 ? 'room' : 'rooms'} selected)`
             )}
           </button>
         </div>
@@ -325,32 +532,40 @@ const BookingSystem = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Guest</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rooms</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Room</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Guests</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Amount</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {bookings.map((booking) => (
-                  <tr key={booking.id}>
+                  <tr key={booking.reservation_id}>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {booking.guest_name || 'N/A'}
+                      {booking.guest ? `${booking.guest.first_name} ${booking.guest.last_name}` : 'N/A'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {(booking.room_names || []).join(', ')}
+                      {booking.room ? `Room ${booking.room.room_number} (${booking.room.room_type?.name})` : 'N/A'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {new Date(booking.check_in_date).toLocaleDateString()} -{' '}
-                      {new Date(booking.check_out_date).toLocaleDateString()}
+                      {new Date(booking.check_in).toLocaleDateString()} -{' '}
+                      {new Date(booking.check_out).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {booking.adults} adults, {booking.children} children
                     </td>
                     <td className="px-6 py-4">
                       <span className={`text-xs px-2 py-1 rounded-full ${
-                        booking.payment_status === 'confirmed' 
+                        booking.status === 'confirmed' 
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-yellow-100 text-yellow-800'
                       }`}>
-                        {booking.payment_status || 'pending'}
+                        {booking.status || 'pending'}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      ${parseFloat(booking.total_amount || 0).toFixed(2)}
                     </td>
                   </tr>
                 ))}
