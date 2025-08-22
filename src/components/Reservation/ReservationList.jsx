@@ -14,8 +14,10 @@ const API_ENDPOINTS = {
 };
 
 const MAX_RETRIES = 3;
+const DATA_FETCH_DELAY = 300; // ms delay for smoother UI
 
 const ReservationList = () => {
+  // State management
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(statusOptions[0]);
   const [dateFilter, setDateFilter] = useState(null);
@@ -28,9 +30,14 @@ const ReservationList = () => {
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [viewMode, setViewMode] = useState('list');
   const [actionLoading, setActionLoading] = useState(false);
+  const [dataInitialized, setDataInitialized] = useState(false);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  
   const retryCountRef = useRef(0);
   const isMountedRef = useRef(true);
+  const fetchTimeoutRef = useRef(null);
 
+  // Data normalization
   const normalizeData = (data) => {
     if (!data || !data.success) return [];
     if (data.data.reservations) {
@@ -39,6 +46,7 @@ const ReservationList = () => {
     return Array.isArray(data.data) ? data.data : [data.data];
   };
 
+  // Process reservations with memoization to prevent unnecessary recalculations
   const processReservations = useCallback((reservationsData) => {
     return reservationsData.map(reservation => {
       const guest = reservation.guest || {};
@@ -93,12 +101,64 @@ const ReservationList = () => {
     });
   }, []);
 
+  // Create a temporary reservation for optimistic UI
+  const createTempReservation = (newReservation, guests, rooms) => {
+    const guest = guests.find(g => g.guest_id === newReservation.guestId) || {};
+    const room = rooms.find(r => r.room_id === newReservation.roomId) || {};
+    const nights = calculateNights(newReservation.checkIn, newReservation.checkOut) || 1;
+    
+    // Generate a temporary ID that won't conflict with real IDs
+    const tempId = `temp-${Date.now()}`;
+    
+    return {
+      id: tempId,
+      reservation_id: tempId,
+      guest_id: newReservation.guestId,
+      guestDetails: {
+        name: `${guest.first_name || ''} ${guest.last_name || ''}`.trim(),
+        email: guest.email || 'N/A',
+        phone: guest.phone || 'N/A',
+        address: `${guest.address || ''}, ${guest.city || ''}, ${guest.country || ''}`.trim(),
+        nationalId: guest.id_number || 'N/A'
+      },
+      code: `R-TEMP`,
+      room_id: newReservation.roomId,
+      roomNumber: room.room_number || 'TEMP',
+      roomType: room.room_type?.name || 'Standard',
+      duration: `${nights} nights`,
+      checkIn: newReservation.checkIn,
+      checkOut: newReservation.checkOut,
+      status: (newReservation.status || 'confirmed').toLowerCase(),
+      totalAmount: parseFloat(room.room_type?.base_price) * nights || 0,
+      paidAmount: 0,
+      balance: parseFloat(room.room_type?.base_price) * nights || 0,
+      paymentMethod: 'Credit Card',
+      createdAt: new Date().toISOString(),
+      formattedCheckIn: formatDate(newReservation.checkIn),
+      formattedCheckOut: formatDate(newReservation.checkOut),
+      formattedCreatedAt: formatDate(new Date()),
+      adults: newReservation.adults || 1,
+      children: newReservation.children || 0,
+      specialRequests: newReservation.specialRequests || 'None',
+      reservationGuests: newReservation.additionalGuests || [],
+      amenities: room.amenities?.map(a => a.name) || [],
+      isTemp: true // Flag to identify temporary reservations
+    };
+  };
+
+  // Fetch data with error handling
   const fetchData = useCallback(async (endpoint) => {
-    const response = await fetch(endpoint);
-    if (!response.ok) throw new Error(`Failed to fetch ${endpoint}`);
-    return response.json();
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) throw new Error(`Failed to fetch ${endpoint}`);
+      return response.json();
+    } catch (err) {
+      console.error(`Error fetching from ${endpoint}:`, err);
+      throw err;
+    }
   }, []);
 
+  // Fetch all data with staggered loading for better UX
   const fetchAllData = useCallback(async () => {
     if (!isMountedRef.current) return;
 
@@ -106,51 +166,85 @@ const ReservationList = () => {
     setError(null);
 
     try {
-      const [reservationsData, guestsData, roomsData] = await Promise.all([
-        fetchData(API_ENDPOINTS.RESERVATIONS),
-        fetchData(API_ENDPOINTS.GUESTS),
-        fetchData(API_ENDPOINTS.ROOMS)
-      ]);
-
+      // Fetch reservations first (most important)
+      const reservationsData = await fetchData(API_ENDPOINTS.RESERVATIONS);
       const normalizedReservations = normalizeData(reservationsData);
-
+      
       if (isMountedRef.current) {
-        setGuests(guestsData.data || guestsData);
-        setRooms(roomsData.data || roomsData);
         setReservations(processReservations(normalizedReservations));
-        retryCountRef.current = 0;
+        
+        // Fetch guests and rooms after a short delay for smoother UI
+        setTimeout(async () => {
+          if (!isMountedRef.current) return;
+          
+          try {
+            const [guestsData, roomsData] = await Promise.all([
+              fetchData(API_ENDPOINTS.GUESTS),
+              fetchData(API_ENDPOINTS.ROOMS)
+            ]);
+            
+            if (isMountedRef.current) {
+              setGuests(guestsData.data || guestsData);
+              setRooms(roomsData.data || roomsData);
+              setDataInitialized(true);
+              retryCountRef.current = 0;
+            }
+          } catch (err) {
+            console.error("Secondary fetch error:", err);
+            if (isMountedRef.current) {
+              setError("Partially loaded: " + (err.message || 'Failed to load some data'));
+            }
+          }
+        }, DATA_FETCH_DELAY);
       }
     } catch (err) {
-      console.error("Fetch error:", err);
+      console.error("Primary fetch error:", err);
       if (!isMountedRef.current) return;
 
       setError(err.message || 'Failed to fetch data');
       
       if (retryCountRef.current < MAX_RETRIES) {
         retryCountRef.current += 1;
-        setTimeout(fetchAllData, 3000);
+        fetchTimeoutRef.current = setTimeout(fetchAllData, 3000);
       }
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
+      // Only set loading to false after initial data is loaded
+      // Secondary data loading happens in the background
+      setTimeout(() => {
+        if (isMountedRef.current && reservations.length > 0) {
+          setLoading(false);
+        }
+      }, 100);
     }
-  }, [fetchData, processReservations]);
+  }, [fetchData, processReservations, reservations.length]);
 
+  // Initial data fetch
   useEffect(() => {
     isMountedRef.current = true;
-    fetchAllData();
+    
+    // Use a small delay before initial fetch to allow UI to render
+    fetchTimeoutRef.current = setTimeout(fetchAllData, 100);
 
     return () => {
       isMountedRef.current = false;
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
     };
   }, [fetchAllData]);
 
+  // Handle adding a new reservation with optimistic UI
   const handleAddReservation = async (newReservation) => {
     if (!newReservation) return;
     
-    setLoading(true);
+    setFormSubmitting(true);
     setError(null);
+    
+    // Create temporary reservation for optimistic UI
+    const tempReservation = createTempReservation(newReservation, guests, rooms);
+    
+    // Optimistically add to the list
+    setReservations(prev => [tempReservation, ...prev]);
     
     try {
       const response = await fetch(API_ENDPOINTS.RESERVATIONS, {
@@ -178,8 +272,14 @@ const ReservationList = () => {
       const result = await response.json();
       const processedReservation = processReservations([result.data])[0];
       
-      setReservations(prev => [processedReservation, ...prev]);
+      // Replace the temporary reservation with the real one
+      setReservations(prev => 
+        prev.map(res => 
+          res.id === tempReservation.id ? processedReservation : res
+        )
+      );
       
+      // Update guests and rooms if needed
       if (result.data.guest && !guests.some(g => g.guest_id === result.data.guest.guest_id)) {
         setGuests(prev => [...prev, result.data.guest]);
       }
@@ -192,11 +292,15 @@ const ReservationList = () => {
     } catch (err) {
       console.error("Create reservation error:", err);
       setError(err.message || 'Failed to create reservation');
+      
+      // Revert optimistic update on error
+      setReservations(prev => prev.filter(res => res.id !== tempReservation.id));
     } finally {
-      setLoading(false);
+      setFormSubmitting(false);
     }
   };
 
+  // Status update handler
   const handleUpdateStatus = async (reservationId, newStatus) => {
     setActionLoading(true);
     try {
@@ -212,8 +316,7 @@ const ReservationList = () => {
         throw new Error('Failed to update reservation status');
       }
 
-      const result = await response.json();
-      
+      // Optimistic update for better UX
       setReservations(prev => 
         prev.map(res => 
           res.id === reservationId 
@@ -234,12 +337,16 @@ const ReservationList = () => {
     } catch (err) {
       console.error("Update status error:", err);
       setError(err.message || 'Failed to update status');
+      
+      // Revert optimistic update on error
+      fetchAllData();
       return false;
     } finally {
       setActionLoading(false);
     }
   };
 
+  // Cancel reservation handler
   const handleCancelReservation = async (reservationId) => {
     setActionLoading(true);
     try {
@@ -254,8 +361,7 @@ const ReservationList = () => {
         throw new Error('Failed to cancel reservation');
       }
 
-      const result = await response.json();
-      
+      // Optimistic update
       setReservations(prev => 
         prev.map(res => 
           res.id === reservationId 
@@ -276,12 +382,16 @@ const ReservationList = () => {
     } catch (err) {
       console.error("Cancel reservation error:", err);
       setError(err.message || 'Failed to cancel reservation');
+      
+      // Revert optimistic update on error
+      fetchAllData();
       return false;
     } finally {
       setActionLoading(false);
     }
   };
 
+  // Delete reservation handler
   const handleDeleteReservation = async (reservationId) => {
     setActionLoading(true);
     try {
@@ -296,6 +406,7 @@ const ReservationList = () => {
         throw new Error('Failed to delete reservation');
       }
 
+      // Optimistic update
       setReservations(prev => prev.filter(res => res.id !== reservationId));
       
       // If viewing details of the deleted reservation, go back to list
@@ -308,12 +419,16 @@ const ReservationList = () => {
     } catch (err) {
       console.error("Delete reservation error:", err);
       setError(err.message || 'Failed to delete reservation');
+      
+      // Revert optimistic update on error
+      fetchAllData();
       return false;
     } finally {
       setActionLoading(false);
     }
   };
 
+  // Navigation handlers
   const handleViewDetails = (reservation) => {
     setSelectedReservation(reservation);
     setViewMode('detail');
@@ -328,6 +443,7 @@ const ReservationList = () => {
     setSelectedReservation(null);
   };
 
+  // Memoized filtered reservations for better performance
   const filteredReservations = useMemo(() => {
     return reservations.filter((reservation) => {
       const searchFields = [
@@ -355,6 +471,7 @@ const ReservationList = () => {
     });
   }, [reservations, searchTerm, statusFilter, dateFilter]);
 
+  // Render appropriate view based on viewMode
   const renderView = () => {
     switch (viewMode) {
       case 'detail':
@@ -385,6 +502,7 @@ const ReservationList = () => {
                 onSave={handleAddReservation}
                 guests={guests}
                 rooms={rooms}
+                submitting={formSubmitting}
               />
             )}
             <ReservationTable
@@ -413,12 +531,12 @@ const ReservationList = () => {
               setStatusFilter={setStatusFilter}
               dateFilter={dateFilter}
               setDateFilter={setDateFilter}
-              loading={loading || actionLoading}
+              loading={loading || actionLoading || formSubmitting}
             />
             <button
               onClick={() => setShowForm(true)}
               className="h-10 flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-md text-sm"
-              disabled={loading || actionLoading}
+              disabled={loading || actionLoading || formSubmitting}
             >
               <span className="text-lg">+</span> Add Booking
             </button>
@@ -426,7 +544,7 @@ const ReservationList = () => {
         </div>
       )}
 
-      {loading && !showForm ? (
+      {loading && !dataInitialized ? (
         <div className="text-center py-8 text-gray-500">Loading reservations...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-600">

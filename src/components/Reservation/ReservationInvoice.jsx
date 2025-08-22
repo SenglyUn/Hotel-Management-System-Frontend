@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FiArrowLeft, FiPrinter, FiDownload } from 'react-icons/fi';
+import { FiArrowLeft, FiPrinter, FiDownload, FiMail, FiHome, FiPhone, FiCalendar, FiUser, FiDollarSign } from 'react-icons/fi';
 import { statusColors } from './constants';
 import { formatDate, calculateNights } from './utils';
 import axios from 'axios';
@@ -44,8 +44,8 @@ const ReservationInvoice = ({
 
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 295; // A4 height in mm
+      const imgWidth = 210;
+      const pageHeight = 295;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       let heightLeft = imgHeight;
       let position = 0;
@@ -60,7 +60,7 @@ const ReservationInvoice = ({
         heightLeft -= pageHeight;
       }
 
-      pdf.save(`invoice_${invoiceData?.id || Date.now()}.pdf`);
+      pdf.save(`invoice_${invoiceData?.invoice_number || Date.now()}.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
       setError('Failed to generate PDF');
@@ -72,15 +72,15 @@ const ReservationInvoice = ({
   useEffect(() => {
     const fetchInvoiceData = async () => {
       try {
-        if (!selectedReservation?.id) {
+        if (!selectedReservation?.reservation_id) {
           throw new Error('No reservation selected');
         }
 
         setLoading(true);
         setError(null);
         
-        const response = await axios.get('http://localhost:5001/api/invoices', {
-          params: { reservation_id: selectedReservation.id },
+        // Updated API endpoint to match your backend
+        const response = await axios.get(`http://localhost:3000/api/reservations/${selectedReservation.reservation_id}/invoice`, {
           timeout: 5000
         });
 
@@ -88,43 +88,76 @@ const ReservationInvoice = ({
           throw new Error(response.data?.message || 'Invalid invoice data received');
         }
 
-        // Find the most recent invoice for this reservation
-        const invoices = response.data.data || [];
-        const latestInvoice = invoices.sort((a, b) => 
-          new Date(b.created_at) - new Date(a.created_at)
-        )[0];
-
-        if (!latestInvoice) {
-          throw new Error('No invoice found for this reservation');
+        const apiInvoiceData = response.data.data?.invoice || response.data.data;
+        
+        if (!apiInvoiceData) {
+          throw new Error('No invoice data received from API');
         }
 
-        setInvoiceData({
-          ...latestInvoice,
-          // Merge with reservation data as fallback
-          guest_name: latestInvoice.guest_name || selectedReservation.guestDetails?.name,
-          guest_email: latestInvoice.guest_email || selectedReservation.guestDetails?.email,
-          guest_id: latestInvoice.guest_id || selectedReservation.guestId,
-          roomDetails: selectedReservation.roomDetails || [],
-          checkIn: selectedReservation.checkIn,
-          checkOut: selectedReservation.checkOut
-        });
+        // Transform API data to match component expectations
+        const transformedData = {
+          // Invoice metadata
+          invoice_number: apiInvoiceData.invoice_number,
+          issue_date: apiInvoiceData.issue_date,
+          due_date: apiInvoiceData.due_date,
+          status: apiInvoiceData.status,
+          
+          // Guest information
+          guest_name: `${apiInvoiceData.guest?.first_name || ''} ${apiInvoiceData.guest?.last_name || ''}`.trim(),
+          guest_email: apiInvoiceData.guest?.email,
+          guest_id: apiInvoiceData.guest?.guest_id,
+          
+          // Reservation information
+          reservation_id: apiInvoiceData.reservation?.reservation_id,
+          checkIn: apiInvoiceData.reservation?.check_in,
+          checkOut: apiInvoiceData.reservation?.check_out,
+          
+          // Financial information
+          room_charges: apiInvoiceData.charges?.room_charges,
+          additional_charges: apiInvoiceData.charges?.additional_charges,
+          total_amount: apiInvoiceData.charges?.total,
+          paid_amount: apiInvoiceData.charges?.paid,
+          balance: apiInvoiceData.charges?.balance,
+          
+          // Room details from reservation
+          roomDetails: [{
+            name: apiInvoiceData.reservation?.room?.room_type?.name || 'Room',
+            room_number: apiInvoiceData.reservation?.room?.room_number,
+            price: apiInvoiceData.reservation?.room?.room_type?.base_price || apiInvoiceData.charges?.room_charges,
+            total: apiInvoiceData.charges?.room_charges
+          }],
+          
+          // Payment status
+          payment_status: apiInvoiceData.status
+        };
+
+        setInvoiceData(transformedData);
       } catch (err) {
         console.error('Invoice fetch error:', err);
         setError(err.message);
+        
         // Fallback to reservation data if API fails
         if (selectedReservation) {
           setInvoiceData({
-            ...selectedReservation,
+            invoice_number: `INV-${selectedReservation.reservation_id}`,
+            guest_name: `${selectedReservation.guest?.first_name} ${selectedReservation.guest?.last_name}`,
+            guest_email: selectedReservation.guest?.email,
+            guest_id: selectedReservation.guest?.guest_id,
+            reservation_id: selectedReservation.reservation_id,
+            checkIn: selectedReservation.check_in,
+            checkOut: selectedReservation.check_out,
+            roomDetails: [{
+              name: selectedReservation.room?.room_type?.name || 'Room',
+              room_number: selectedReservation.room?.room_number,
+              price: selectedReservation.room?.room_type?.base_price || selectedReservation.total_amount,
+              total: selectedReservation.total_amount
+            }],
+            room_charges: selectedReservation.total_amount,
+            total_amount: selectedReservation.total_amount,
+            paid_amount: selectedReservation.paid_amount,
+            balance: selectedReservation.total_amount - selectedReservation.paid_amount,
             payment_status: selectedReservation.status,
-            final_price: selectedReservation.totalAmount,
-            total_price: selectedReservation.roomDetails?.reduce(
-              (sum, room) => sum + (room.total || 0), 0
-            ),
-            tax: selectedReservation.tax,
-            discount: selectedReservation.discount,
-            guest_name: selectedReservation.guestDetails?.name,
-            guest_email: selectedReservation.guestDetails?.email,
-            guest_id: selectedReservation.guestId
+            status: selectedReservation.status
           });
         }
       } finally {
@@ -138,9 +171,10 @@ const ReservationInvoice = ({
   // Calculate duration in nights
   const getStayDuration = () => {
     if (invoiceData?.checkIn && invoiceData?.checkOut) {
-      return calculateNights(invoiceData.checkIn, invoiceData.checkOut);
+      const nights = calculateNights(invoiceData.checkIn, invoiceData.checkOut);
+      return `${nights} night${nights !== 1 ? 's' : ''}`;
     }
-    return selectedReservation?.duration || 'N/A';
+    return 'N/A';
   };
 
   const duration = getStayDuration();
@@ -148,46 +182,51 @@ const ReservationInvoice = ({
     parseInt(duration.match(/\d+/)?.[0] || 1) : 
     duration;
 
-  // Calculate invoice totals
+  // Calculate all invoice totals based on API data
   const calculateInvoiceTotals = () => {
-    // Use API data if available
-    if (invoiceData?.final_price) {
+    if (invoiceData) {
+      // Parse all values as numbers
+      const roomCharges = parseFloat(invoiceData.room_charges || 0);
+      const additionalCharges = parseFloat(invoiceData.additional_charges || 0);
+      const paidAmount = parseFloat(invoiceData.paid_amount || 0);
+      
+      // Calculate all values
+      const subtotal = roomCharges;
+      const total = subtotal + additionalCharges;
+      const balance = total - paidAmount;
+      
       return {
-        subtotal: parseFloat(invoiceData.total_price || 0).toFixed(2),
-        tax: parseFloat(invoiceData.tax || 0).toFixed(2),
-        discount: parseFloat(invoiceData.discount || 0).toFixed(2),
-        total: parseFloat(invoiceData.final_price || 0).toFixed(2)
+        room_charges: roomCharges.toFixed(2),
+        additional_charges: additionalCharges.toFixed(2),
+        subtotal: subtotal.toFixed(2),
+        total: total.toFixed(2),
+        paid: paidAmount.toFixed(2),
+        balance: balance.toFixed(2)
       };
     }
 
-    // Fallback calculation
-    const roomDetails = invoiceData?.roomDetails || selectedReservation?.roomDetails || [];
-    const subtotal = roomDetails.reduce((sum, room) => sum + (room.total || 0), 0);
-    const taxRate = 0.10; // Default tax rate if not provided
-    const tax = invoiceData?.tax || subtotal * taxRate;
-    const discount = invoiceData?.discount || 0;
-    const total = subtotal + tax - discount;
-
     return {
-      subtotal: subtotal.toFixed(2),
-      tax: tax.toFixed(2),
-      discount: discount.toFixed(2),
-      total: total.toFixed(2)
+      room_charges: '0.00',
+      additional_charges: '0.00',
+      subtotal: '0.00',
+      total: '0.00',
+      paid: '0.00',
+      balance: '0.00'
     };
   };
 
-  const invoice = calculateInvoiceTotals();
+  const invoiceTotals = calculateInvoiceTotals();
 
   if (loading && !invoiceData) {
     return (
       <div className="p-6 bg-gray-50 min-h-screen font-sans text-gray-800">
         <button
           onClick={handleBackToList}
-          className="flex items-center gap-2 mb-6 text-blue-600 hover:text-blue-800"
+          className="flex items-center gap-2 mb-6 text-blue-600 hover:text-blue-800 transition-colors"
         >
           <FiArrowLeft /> Back to Reservation
         </button>
-        <div className="bg-white shadow-md rounded-lg overflow-hidden p-8 text-center">
+        <div className="bg-white rounded-xl shadow-sm p-8 text-center">
           <div className="animate-pulse flex flex-col items-center">
             <div className="h-6 bg-gray-200 rounded w-1/2 mb-4"></div>
             <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
@@ -203,17 +242,17 @@ const ReservationInvoice = ({
       <div className="p-6 bg-gray-50 min-h-screen font-sans text-gray-800">
         <button
           onClick={handleBackToList}
-          className="flex items-center gap-2 mb-6 text-blue-600 hover:text-blue-800"
+          className="flex items-center gap-2 mb-6 text-blue-600 hover:text-blue-800 transition-colors"
         >
           <FiArrowLeft /> Back to Reservation
         </button>
-        <div className="bg-white shadow-md rounded-lg overflow-hidden p-8">
+        <div className="bg-white rounded-xl shadow-sm p-8">
           <div className="text-red-500 mb-4">
             {error || 'No invoice data available'}
           </div>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Retry
           </button>
@@ -235,163 +274,198 @@ const ReservationInvoice = ({
       <div className="no-print">
         <button
           onClick={handleBackToList}
-          className="flex items-center gap-2 mb-6 text-blue-600 hover:text-blue-800"
+          className="flex items-center gap-2 mb-6 text-blue-600 hover:text-blue-800 transition-colors"
         >
           <FiArrowLeft /> Back to Reservation
         </button>
         
         {error && (
-          <div className="mb-4 p-4 bg-yellow-100 text-yellow-800 rounded-md">
+          <div className="mb-4 p-4 bg-yellow-50 text-yellow-800 rounded-lg border border-yellow-200">
             Note: {error} - Showing fallback data
           </div>
         )}
       </div>
       
-      <div ref={invoiceRef} className="bg-white shadow-md rounded-lg overflow-hidden p-8">
-        <div className="flex justify-between items-start mb-8">
+      <div ref={invoiceRef} className="bg-white rounded-xl shadow-sm overflow-hidden p-8">
+        {/* Header */}
+        <div className="flex justify-between items-start mb-8 pb-6 border-b border-gray-100">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">Hotel Invoice</h1>
-            <p className="text-gray-600">
-              Invoice #{invoiceData.code || invoiceData.id || 'N/A'}
-            </p>
-            <p className="text-gray-600 text-sm">
-              Date: {formatDate(invoiceData.invoice_date || invoiceData.createdAt || new Date())}
+            <h1 className="text-3xl font-bold text-gray-900">GRAND HOTEL</h1>
+            <div className="flex items-center text-gray-500 mt-1">
+              <FiHome className="mr-2" />
+              <span>123 Luxury Avenue, Prestige District</span>
+            </div>
+            <div className="flex items-center text-gray-500 mt-1">
+              <FiPhone className="mr-2" />
+              <span>+1 (555) 123-4567</span>
+            </div>
+            <div className="flex items-center text-gray-500 mt-1">
+              <FiMail className="mr-2" />
+              <span>reservations@grandhotel.com</span>
+            </div>
+          </div>
+          
+          <div className="text-right">
+            <h2 className="text-2xl font-semibold text-gray-800">INVOICE</h2>
+            <p className="text-gray-500 mt-1">
+              # {invoiceData.invoice_number || 'N/A'}
             </p>
           </div>
-          <div className="no-print">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowPrintView(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                <FiPrinter /> Print Invoice
-              </button>
-              <button
-                onClick={handleDownloadPDF}
-                disabled={isGeneratingPDF}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
-              >
-                {isGeneratingPDF ? 'Generating...' : (
-                  <>
-                    <FiDownload /> Save as PDF
-                  </>
-                )}
-              </button>
+        </div>
+
+        {/* Invoice Details */}
+        <div className="grid grid-cols-2 gap-8 mb-8">
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="font-semibold text-gray-700 mb-3 flex items-center">
+              <FiUser className="mr-2" />
+              Guest Information
+            </h3>
+            <p className="font-medium text-gray-900">{invoiceData.guest_name || 'N/A'}</p>
+            <p className="text-gray-600">ID: {invoiceData.guest_id || 'N/A'}</p>
+            <p className="text-gray-600">{invoiceData.guest_email || 'N/A'}</p>
+          </div>
+
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="font-semibold text-gray-700 mb-3 flex items-center">
+              <FiCalendar className="mr-2" />
+              Invoice Details
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="text-gray-600">Issued:</div>
+              <div>{formatDate(invoiceData.issue_date || new Date())}</div>
+              
+              <div className="text-gray-600">Due Date:</div>
+              <div>{formatDate(invoiceData.due_date || new Date())}</div>
+              
+              <div className="text-gray-600">Reservation:</div>
+              <div>#{invoiceData.reservation_id || 'N/A'}</div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-8 mb-8">
-          <div>
-            <h3 className="font-semibold text-gray-700 mb-2">Hotel Information</h3>
-            <p>Grand Hotel</p>
-            <p>123 Main Street</p>
-            <p>New York, NY 10001</p>
-            <p>Phone: (123) 456-7890</p>
-          </div>
-
-          <div className="text-right">
-            <h3 className="font-semibold text-gray-700 mb-2">Guest Information</h3>
-            <p>{invoiceData.guest_name || 'N/A'}</p>
-            <p>Guest ID: {invoiceData.guest_id || 'N/A'}</p>
-            <p>Reservation: {invoiceData.reservation_id || 'N/A'}</p>
-            <p>Email: {invoiceData.guest_email || 'N/A'}</p>
-          </div>
-        </div>
-
-        <div className="mb-8">
-          <h3 className="font-semibold text-gray-700 mb-2">Stay Details</h3>
+        {/* Stay Details */}
+        <div className="bg-gray-50 p-4 rounded-lg mb-8">
+          <h3 className="font-semibold text-gray-700 mb-3 flex items-center">
+            <FiCalendar className="mr-2" />
+            Stay Details
+          </h3>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <p className="font-medium">Check-In</p>
-              <p>{formatDate(invoiceData.checkIn)}</p>
+              <div className="text-sm text-gray-500">Check-In</div>
+              <div className="font-medium">{formatDate(invoiceData.checkIn)}</div>
             </div>
             <div>
-              <p className="font-medium">Check-Out</p>
-              <p>{formatDate(invoiceData.checkOut)}</p>
+              <div className="text-sm text-gray-500">Check-Out</div>
+              <div className="font-medium">{formatDate(invoiceData.checkOut)}</div>
             </div>
             <div>
-              <p className="font-medium">Duration</p>
-              <p>{duration}</p>
+              <div className="text-sm text-gray-500">Duration</div>
+              <div className="font-medium">{duration}</div>
             </div>
           </div>
         </div>
 
+        {/* Charges Table */}
         <div className="mb-8">
-          <h3 className="font-semibold text-gray-700 mb-4">Room Charges</h3>
-          <table className="w-full border-collapse">
+          <h3 className="font-semibold text-gray-700 mb-4">Charge Breakdown</h3>
+          <table className="w-full">
             <thead>
-              <tr className="bg-gray-100">
-                <th className="text-left py-2 px-4 border">Room</th>
-                <th className="text-right py-2 px-4 border">Rate</th>
-                <th className="text-right py-2 px-4 border">Nights</th>
-                <th className="text-right py-2 px-4 border">Amount</th>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-3 px-4 font-medium text-gray-600">Description</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-600">Amount</th>
               </tr>
             </thead>
             <tbody>
-              {(invoiceData.roomDetails || []).length > 0 ? (
-                invoiceData.roomDetails.map((room, index) => (
-                  <tr key={index} className="border-b">
-                    <td className="py-2 px-4 border">{room.name || `Room ${index + 1}`}</td>
-                    <td className="py-2 px-4 border text-right">${(room.price || 0).toFixed(2)}</td>
-                    <td className="py-2 px-4 border text-right">{nights}</td>
-                    <td className="py-2 px-4 border text-right">
-                      ${((room.price || 0) * nights).toFixed(2)}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="4" className="py-2 px-4 border text-center text-gray-500">
-                    No room information available
-                  </td>
+              <tr className="border-b border-gray-100">
+                <td className="py-3 px-4">
+                  <div className="font-medium">Room Charges</div>
+                  <div className="text-sm text-gray-500">{nights} night{nights !== 1 ? 's' : ''}</div>
+                </td>
+                <td className="py-3 px-4 text-right">${invoiceTotals.room_charges}</td>
+              </tr>
+              {parseFloat(invoiceTotals.additional_charges) > 0 && (
+                <tr className="border-b border-gray-100">
+                  <td className="py-3 px-4 font-medium">Additional Charges</td>
+                  <td className="py-3 px-4 text-right">${invoiceTotals.additional_charges}</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
 
-        <div className="ml-auto w-64">
-          <div className="flex justify-between py-2 border-b">
-            <span className="font-medium">Subtotal:</span>
-            <span>${invoice.subtotal}</span>
-          </div>
-          {parseFloat(invoice.discount) > 0 && (
-            <div className="flex justify-between py-2 border-b text-green-600">
-              <span className="font-medium">Discount:</span>
-              <span>-${invoice.discount}</span>
+        {/* Totals */}
+        <div className="ml-auto w-80 mb-8">
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Subtotal:</span>
+              <span>${invoiceTotals.subtotal}</span>
             </div>
-          )}
-          <div className="flex justify-between py-2 border-b">
-            <span className="font-medium">Tax:</span>
-            <span>${invoice.tax}</span>
-          </div>
-          <div className="flex justify-between py-2 font-bold text-lg">
-            <span>Total:</span>
-            <span>${invoice.total}</span>
-          </div>
-        </div>
-
-        <div className="mt-8 pt-8 border-t">
-          <h3 className="font-semibold text-gray-700 mb-2">Payment Information</h3>
-          <p>Status: 
-            <span className={`ml-2 px-2 py-1 rounded-md text-xs font-semibold ${
-              statusColors[invoiceData.payment_status] || statusColors.default
+            {parseFloat(invoiceTotals.additional_charges) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Additional Charges:</span>
+                <span>${invoiceTotals.additional_charges}</span>
+              </div>
+            )}
+            <div className="flex justify-between pt-3 border-t border-gray-200 font-semibold text-lg">
+              <span>Total Amount:</span>
+              <span>${invoiceTotals.total}</span>
+            </div>
+            <div className="flex justify-between text-green-600">
+              <span>Paid Amount:</span>
+              <span>${invoiceTotals.paid}</span>
+            </div>
+            <div className={`flex justify-between pt-3 border-t border-gray-200 font-semibold text-lg ${
+              parseFloat(invoiceTotals.balance) > 0 ? 'text-red-600' : 'text-green-600'
             }`}>
-              {invoiceData.payment_status 
-                ? invoiceData.payment_status.charAt(0).toUpperCase() + 
-                  invoiceData.payment_status.slice(1)
-                : 'Unknown'}
-            </span>
-          </p>
-          <p className="mt-2">
-            Invoice Date: {formatDate(invoiceData.invoice_date || invoiceData.createdAt)}
-          </p>
+              <span>Balance:</span>
+              <span>${invoiceTotals.balance}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-8 text-center text-gray-500 text-sm">
-          <p>Thank you for choosing our hotel!</p>
-          <p>For any inquiries, please contact us at info@grandhotel.com</p>
+        {/* Status & Footer */}
+        <div className="grid grid-cols-2 gap-8 mt-8 pt-8 border-t border-gray-100">
+          <div>
+            <h3 className="font-semibold text-gray-700 mb-2">Payment Status</h3>
+            <div className="flex items-center">
+              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                statusColors[invoiceData.payment_status] || statusColors.default
+              }`}>
+                {invoiceData.payment_status 
+                  ? invoiceData.payment_status.charAt(0).toUpperCase() + 
+                    invoiceData.payment_status.slice(1)
+                  : 'Unknown'}
+              </span>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <h3 className="font-semibold text-gray-700 mb-2">Thank You</h3>
+            <p className="text-gray-600">We appreciate your business</p>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="no-print mt-8 pt-8 border-t border-gray-100">
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => setShowPrintView(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FiPrinter /> Print Invoice
+            </button>
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isGeneratingPDF}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {isGeneratingPDF ? 'Generating...' : (
+                <>
+                  <FiDownload /> Save as PDF
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
