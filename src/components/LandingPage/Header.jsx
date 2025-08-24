@@ -1,52 +1,407 @@
 // src/components/LandingPage/Header.jsx
-import React from 'react';
+import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { 
+  FiSearch, 
+  FiBell, 
+  FiUser, 
+  FiLogOut, 
+  FiSettings, 
+  FiBookmark,
+  FiHome,
+  FiStar,
+  FiMap,
+  FiHeart,
+  FiMenu,
+  FiX,
+  FiFileText // Added invoice icon
+} from 'react-icons/fi';
 
-const Header = ({ isLoggedIn, userData, handleLogout, toggleAuthModal }) => {
+const Header = ({ toggleAuthModal, handleLogout }) => {
+  const { user: userData, loading: authLoading, logout: authLogout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeNav, setActiveNav] = useState('home');
+
+  const isLoggedIn = !!userData;
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      console.log('Searching for:', searchQuery);
+      navigate(`/search?q=${encodeURIComponent(searchQuery)}`);
+    }
+  };
+
+  const handleSectionNavigation = (sectionId, navItem) => {
+    setActiveNav(navItem);
+    setShowDropdown(false);
+    setShowMobileMenu(false);
+    
+    if (location.pathname === '/landing') {
+      const element = document.getElementById(sectionId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    } else {
+      navigate('/landing', { 
+        state: { scrollTo: sectionId },
+        replace: true
+      });
+      
+      setTimeout(() => {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 100);
+    }
+  };
+
+  const handlePageNavigation = (path, navItem) => {
+    setActiveNav(navItem);
+    setShowDropdown(false);
+    setShowMobileMenu(false);
+    navigate(path);
+  };
+
+  const handleLogoutClick = async () => {
+    try {
+      if (handleLogout) {
+        await handleLogout();
+      } else {
+        await authLogout();
+        navigate('/login');
+      }
+      setShowDropdown(false);
+      setShowMobileMenu(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  // Show loading state while auth is being checked
+  if (authLoading) {
+    return (
+      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between fixed top-0 z-50 shadow-sm w-full">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold text-blue-800">Moon Hotel</h1>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="animate-pulse bg-gray-200 rounded-full w-10 h-10"></div>
+        </div>
+      </header>
+    );
+  }
+
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center">
-            <h1 className="text-2xl font-bold text-blue-800">LuxuryStay</h1>
+    <>
+      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between fixed top-0 z-50 shadow-sm w-full">
+        {/* Logo and Mobile Menu Button */}
+        <div className="flex items-center gap-4">
+          <button 
+            className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+          >
+            {showMobileMenu ? <FiX className="h-5 w-5" /> : <FiMenu className="h-5 w-5" />}
+          </button>
+          
+          <div 
+            className="flex items-center cursor-pointer"
+            onClick={() => handlePageNavigation('/landing', 'home')}
+          >
+            <h1 className="text-xl font-bold text-blue-800">Moon Hotel</h1>
           </div>
-          
-          <nav className="hidden md:flex space-x-8">
-            <a href="#rooms" className="text-gray-700 hover:text-blue-600 transition">Rooms</a>
-            <a href="#amenities" className="text-gray-700 hover:text-blue-600 transition">Amenities</a>
-            <a href="#contact" className="text-gray-700 hover:text-blue-600 transition">Contact</a>
-          </nav>
-          
-          <div className="flex items-center space-x-4">
-            {isLoggedIn ? (
-              <div className="flex items-center space-x-4">
-                <span className="text-gray-700">Welcome, {userData?.name || userData?.email}</span>
+        </div>
+
+        {/* Desktop Navigation */}
+        <nav className="hidden md:flex items-center gap-6">
+          <button 
+            onClick={() => handleSectionNavigation('rooms', 'rooms')}
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeNav === 'rooms' 
+                ? 'text-blue-600 bg-blue-50' 
+                : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+            }`}
+          >
+            <FiHome className="inline mr-2 h-4 w-4" />
+            Rooms
+          </button>
+          <button 
+            onClick={() => handleSectionNavigation('amenities', 'amenities')}
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeNav === 'amenities' 
+                ? 'text-blue-600 bg-blue-50' 
+                : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+            }`}
+          >
+            <FiStar className="inline mr-2 h-4 w-4" />
+            Amenities
+          </button>
+          <button 
+            onClick={() => handleSectionNavigation('contact', 'contact')}
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeNav === 'contact' 
+                ? 'text-blue-600 bg-blue-50' 
+                : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+            }`}
+          >
+            <FiMap className="inline mr-2 h-4 w-4" />
+            Contact
+          </button>
+        </nav>
+
+        {/* Search Bar */}
+        <div className="hidden md:block relative flex-1 max-w-xl mx-6">
+          <form onSubmit={handleSearch} className="bg-gray-100 rounded-lg px-4 py-2 flex items-center">
+            <FiSearch className="text-gray-400 mr-3" />
+            <input
+              type="text"
+              placeholder="Search rooms, amenities..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-transparent focus:outline-none w-full text-sm text-gray-700 placeholder-gray-400"
+            />
+          </form>
+        </div>
+
+        {/* User Actions */}
+        <div className="flex items-center gap-4">
+          {/* Mobile Search */}
+          <button 
+            className="md:hidden p-2 rounded-lg text-gray-600 hover:text-blue-600 hover:bg-gray-100 transition-colors"
+            onClick={() => {
+              const searchInput = prompt("What are you looking for?");
+              if (searchInput) {
+                setSearchQuery(searchInput);
+                navigate(`/search?q=${encodeURIComponent(searchInput)}`);
+              }
+            }}
+          >
+            <FiSearch className="h-5 w-5" />
+          </button>
+
+          {/* Notifications - Only show if logged in */}
+          {isLoggedIn && (
+            <div className="relative w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors">
+              <FiBell className="text-gray-600" />
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                3
+              </span>
+            </div>
+          )}
+
+          {/* User Profile with Dropdown */}
+          {isLoggedIn ? (
+            <div 
+              className="flex items-center gap-3 bg-gray-100 rounded-full px-3 py-1 cursor-pointer hover:bg-gray-200 transition-colors relative"
+              onClick={() => setShowDropdown(!showDropdown)}
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-700 flex items-center justify-center">
+                <span className="text-white font-medium text-sm">
+                  {userData?.firstName ? userData.firstName.charAt(0).toUpperCase() : 
+                   userData?.username ? userData.username.charAt(0).toUpperCase() : 'G'}
+                </span>
+              </div>
+              
+              <div className="leading-tight hidden md:block">
+                <p className="font-medium text-gray-800 text-sm">
+                  {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 
+                   userData?.firstName ? userData.firstName : 
+                   userData?.username ? userData.username : 'Guest User'}
+                </p>
+                <p className="text-xs text-gray-500 capitalize">
+                  {userData?.role || 'guest'}
+                </p>
+              </div>
+              
+              {/* Dropdown Menu */}
+              {showDropdown && (
+                <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <p className="text-sm font-medium text-gray-900">
+                      {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 
+                       userData?.firstName ? userData.firstName : 
+                       userData?.username ? userData.username : 'Guest User'}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{userData?.email || 'No email'}</p>
+                  </div>
+                  
+                  <div className="py-2">
+                    <button 
+                      onClick={() => handlePageNavigation('/profile', 'profile')}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <FiUser className="h-4 w-4 mr-3" />
+                      Profile
+                    </button>
+                    <button 
+                      onClick={() => handlePageNavigation('/bookings', 'bookings')}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <FiBookmark className="h-4 w-4 mr-3" />
+                      My Bookings
+                    </button>
+                    <button 
+                      onClick={() => handlePageNavigation('/wishlist', 'wishlist')}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <FiHeart className="h-4 w-4 mr-3" />
+                      Wishlist
+                    </button>
+                    {/* Add Invoice/Booking Confirmation Link */}
+                    <button 
+                      onClick={() => handlePageNavigation('/booking-confirmation', 'invoice')}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <FiFileText className="h-4 w-4 mr-3" />
+                      My Invoices
+                    </button>
+                  </div>
+                  
+                  <div className="border-t border-gray-100"></div>
+                  
+                  <button 
+                    onClick={handleLogoutClick}
+                    className="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <FiLogOut className="h-4 w-4 mr-3" />
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center space-x-4">
+              <button 
+                onClick={() => toggleAuthModal ? toggleAuthModal('login') : handlePageNavigation('/login', 'login')}
+                className="px-4 py-2 text-blue-600 hover:text-blue-700 transition"
+              >
+                Login
+              </button>
+              <button 
+                onClick={() => toggleAuthModal ? toggleAuthModal('register') : handlePageNavigation('/signup', 'signup')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+              >
+                Register
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Mobile Menu */}
+      {showMobileMenu && (
+        <div className="fixed top-16 left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-40 md:hidden">
+          <div className="px-6 py-4">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-gray-900 mb-2">Navigation</h2>
+              <div className="space-y-2">
                 <button 
-                  onClick={handleLogout}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+                  onClick={() => handleSectionNavigation('rooms', 'rooms')}
+                  className={`w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    activeNav === 'rooms' 
+                      ? 'text-blue-600 bg-blue-50' 
+                      : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+                  }`}
                 >
-                  Logout
+                  <FiHome className="inline mr-2 h-4 w-4" />
+                  Rooms
+                </button>
+                <button 
+                  onClick={() => handleSectionNavigation('amenities', 'amenities')}
+                  className={`w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    activeNav === 'amenities' 
+                      ? 'text-blue-600 bg-blue-50' 
+                      : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <FiStar className="inline mr-2 h-4 w-4" />
+                  Amenities
+                </button>
+                <button 
+                  onClick={() => handleSectionNavigation('contact', 'contact')}
+                  className={`w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    activeNav === 'contact' 
+                      ? 'text-blue-600 bg-blue-50' 
+                      : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <FiMap className="inline mr-2 h-4 w-4" />
+                  Contact
                 </button>
               </div>
+            </div>
+            
+            {isLoggedIn ? (
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 mb-2">Account</h2>
+                <div className="space-y-2">
+                  <button 
+                    onClick={() => handlePageNavigation('/profile', 'profile')}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <FiUser className="inline mr-2 h-4 w-4" />
+                    Profile
+                  </button>
+                  <button 
+                    onClick={() => handlePageNavigation('/bookings', 'bookings')}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <FiBookmark className="inline mr-2 h-4 w-4" />
+                    My Bookings
+                  </button>
+                  <button 
+                    onClick={() => handlePageNavigation('/wishlist', 'wishlist')}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <FiHeart className="inline mr-2 h-4 w-4" />
+                    Wishlist
+                  </button>
+                  {/* Add Invoice/Booking Confirmation Link for Mobile */}
+                  <button 
+                    onClick={() => handlePageNavigation('/booking-confirmation', 'invoice')}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <FiFileText className="inline mr-2 h-4 w-4" />
+                    My Invoices
+                  </button>
+                  <button 
+                    onClick={handleLogoutClick}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <FiLogOut className="inline mr-2 h-4 w-4" />
+                    Sign out
+                  </button>
+                </div>
+              </div>
             ) : (
-              <>
-                <button 
-                  onClick={() => toggleAuthModal('login')}
-                  className="px-4 py-2 text-blue-600 hover:text-blue-700 transition"
-                >
-                  Login
-                </button>
-                <button 
-                  onClick={() => toggleAuthModal('register')}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
-                >
-                  Register
-                </button>
-              </>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 mb-2">Account</h2>
+                <div className="space-y-2">
+                  <button 
+                    onClick={() => toggleAuthModal ? toggleAuthModal('login') : handlePageNavigation('/login', 'login')}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    Login
+                  </button>
+                  <button 
+                    onClick={() => toggleAuthModal ? toggleAuthModal('register') : handlePageNavigation('/signup', 'signup')}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    Register
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
-      </div>
-    </header>
+      )}
+    </>
   );
 };
 

@@ -1,3 +1,4 @@
+// src/components/Authentication/LoginForm.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUser, FiLock, FiEye, FiEyeOff, FiLogIn } from 'react-icons/fi';
@@ -28,7 +29,7 @@ const LoginForm = () => {
         if (user.role === 'admin' || user.role === 'staff') {
           navigate('/home');
         } else if (user.role === 'guest') {
-          window.location.href = 'http://localhost:3000/landing';
+          navigate('/landing');
         }
       } else {
         setError(loginError || 'Login failed');
@@ -186,7 +187,7 @@ const LoginForm = () => {
           <div className="bg-gray-50 px-8 py-6 text-center border-t border-gray-200">
             <p className="text-sm text-gray-600">
               Don't have an account?{' '}
-              <a href="/register" className="font-medium text-blue-600 hover:text-blue-500">
+              <a href="/signup" className="font-medium text-blue-600 hover:text-blue-500">
                 Sign up
               </a>
             </p>

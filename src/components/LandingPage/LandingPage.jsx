@@ -1,8 +1,9 @@
-// src/components/LandingPage/LandingPage.js
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+// src/components/LandingPage/LandingPage.jsx
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { useAuth } from '../context/AuthContext';
 
 // Components
 import Header from './Header';
@@ -20,11 +21,9 @@ import { authService } from '../Common/authService';
 
 const API_BASE_URL = 'http://localhost:5000';
 
-// Improved image URL formatter based on your RoomList component
 const getImageUrl = (imagePath) => {
   if (!imagePath) return "https://picsum.photos/800/600?hotel";
   
-  // Handle malformed URLs like "http://uploads/filename.jpg"
   if (imagePath.startsWith("http://uploads/")) {
     const filename = imagePath.replace('http://uploads/', '');
     return `${API_BASE_URL}/uploads/${filename}`;
@@ -35,10 +34,8 @@ const getImageUrl = (imagePath) => {
     return `${API_BASE_URL}/uploads/${filename}`;
   }
   
-  // Handle proper full URLs
   if (imagePath.startsWith("http")) return imagePath;
   
-  // Handle relative paths
   const normalizedPath = imagePath.replace(/\\/g, "/");
   const cleanPath = normalizedPath.replace(/^\/+/, "");
   return `${API_BASE_URL}/${cleanPath}`;
@@ -46,13 +43,15 @@ const getImageUrl = (imagePath) => {
 
 const LandingPage = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { user, logout } = useAuth();
+  
+  const isLoggedIn = !!user;
+  const userData = user;
+
   const [state, setState] = useState({
     availableRooms: [],
     loading: true,
     error: null,
-    isLoggedIn: false,
-    userData: null,
     dateRange: [null, null],
     selectedRoomType: null,
     roomTypes: [],
@@ -63,7 +62,7 @@ const LandingPage = () => {
   });
 
   const {
-    availableRooms, loading, error, isLoggedIn, userData,
+    availableRooms, loading, error,
     dateRange, selectedRoomType, roomTypes, adults, children,
     showAuthModal, authMode
   } = state;
@@ -73,77 +72,6 @@ const LandingPage = () => {
   // Helper function to update state
   const updateState = (newState) => {
     setState(prev => ({ ...prev, ...newState }));
-  };
-
-  // Check auth status and handle redirects
-  useEffect(() => {
-    const checkAuthAndRedirect = async () => {
-      try {
-        const data = await authService.getCurrentUser();
-        if (data.user) {
-          updateState({
-            isLoggedIn: true,
-            userData: data.user,
-            loading: false
-          });
-          
-          if (location.state?.fromAuth) {
-            if (data.user.role === 'guest') {
-              navigate('/', { replace: true });
-            } else {
-              navigate('/home', { replace: true });
-            }
-          }
-        }
-      } catch (error) {
-        updateState({ isLoggedIn: false, userData: null, loading: false });
-      }
-    };
-
-    checkAuthAndRedirect();
-  }, [navigate, location.state]);
-
-  // Auth handlers
-  const handleAuth = async (credentials, isRegister = false) => {
-    try {
-      updateState({ loading: true });
-      
-      const data = isRegister 
-        ? await authService.register(credentials)
-        : await authService.login(credentials);
-
-      if (data.user) {
-        updateState({
-          isLoggedIn: true,
-          userData: data.user,
-          showAuthModal: false,
-          loading: false
-        });
-
-        if (data.user.role === 'guest') {
-          navigate('/', { state: { fromAuth: true } });
-        } else {
-          navigate('/home', { state: { fromAuth: true } });
-        }
-      }
-    } catch (error) {
-      updateState({ error: error.message, loading: false });
-      toast.error(error.message);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await authService.logout();
-      updateState({
-        isLoggedIn: false,
-        userData: null
-      });
-      navigate('/');
-      toast.success('Logged out successfully');
-    } catch (error) {
-      toast.error('Error logging out');
-    }
   };
 
   // Fetch room types
@@ -158,7 +86,6 @@ const LandingPage = () => {
         
         const data = await response.json();
         
-        // Handle the API response structure
         let types = [];
         if (data.success && data.data && Array.isArray(data.data.items)) {
           types = data.data.items;
@@ -168,7 +95,6 @@ const LandingPage = () => {
           types = data;
         }
         
-        // Format image URLs using the improved function
         const formattedTypes = types.map(type => ({
           id: type.type_id || type.id,
           name: type.name,
@@ -214,7 +140,6 @@ const LandingPage = () => {
       const checkIn = startDate.toISOString().split('T')[0];
       const checkOut = endDate.toISOString().split('T')[0];
       
-      // Build URL with query parameters
       const url = new URL(`${API_BASE_URL}/api/reservations/availability/rooms`);
       url.searchParams.append('check_in', checkIn);
       url.searchParams.append('check_out', checkOut);
@@ -239,7 +164,6 @@ const LandingPage = () => {
         throw new Error(errorMessage);
       }
       
-      // Handle the API response structure
       let availableRoomsData = [];
       if (data.success && data.data && Array.isArray(data.data.rooms)) {
         availableRoomsData = data.data.rooms;
@@ -249,13 +173,10 @@ const LandingPage = () => {
         availableRoomsData = data;
       }
       
-      // Enrich room data with image URLs from roomTypes
       const enrichedRooms = availableRoomsData.map(room => {
-        // Find the matching room type
         const roomTypeId = room.type?.id || room.type_id;
         const roomTypeInfo = roomTypes.find(type => type.id === roomTypeId);
         
-        // Create a properly formatted room object with correct image URL
         return {
           id: room.id || room.room_id,
           room_number: room.number || room.room_number,
@@ -291,7 +212,6 @@ const LandingPage = () => {
     }
   };
 
-  // Helper functions
   const calculateNights = (checkIn, checkOut) => {
       if (!checkIn || !checkOut) return 0;
       const oneDay = 24 * 60 * 60 * 1000;
@@ -305,20 +225,51 @@ const LandingPage = () => {
     });
   };
 
-  // Get room type name for display
   const getRoomTypeName = () => {
     if (!selectedRoomType) return null;
     const roomType = roomTypes.find(t => t.id === parseInt(selectedRoomType));
     return roomType ? roomType.name : null;
   };
 
+  const handleAuth = async (credentials, isRegister = false) => {
+    try {
+      updateState({ loading: true });
+      
+      const data = isRegister 
+        ? await authService.register(credentials)
+        : await authService.login(credentials);
+
+      if (data.user) {
+        updateState({
+          showAuthModal: false,
+          loading: false
+        });
+
+        window.location.reload();
+      }
+    } catch (error) {
+      updateState({ error: error.message, loading: false });
+      toast.error(error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // Navigate to login page after successful logout
+      navigate('/login');
+      toast.success('Logged out successfully');
+    } catch (error) {
+      toast.error('Error logging out');
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Header 
-        isLoggedIn={isLoggedIn} 
         userData={userData} 
-        handleLogout={handleLogout} 
-        toggleAuthModal={toggleAuthModal} 
+        handleLogout={handleLogout}
+        toggleAuthModal={toggleAuthModal}
       />
 
       <HeroSection 

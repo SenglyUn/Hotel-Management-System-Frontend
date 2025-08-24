@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./components/context/AuthContext";
 import ProtectedRoute from "./components/Authentication/ProtectedRoute";
+import GuestProtectedRoute from "./components/context/GuestProtectedRoute"; 
 // ... other imports ...
 // Layout
 import MainLayout from "./components/HomePage/MainLayout";
@@ -26,7 +27,8 @@ import RestaurantPage from "./components/Restaurant/Restaurant";
 import ParkingManagement from "./components/Parking/ParkingManagement";
 import SettingsPage from "./components/Setting/SettingsPage";
 import ReservationList from "./components/Reservation/ReservationList";
-import BookingPage from "./components/HomePage/BookingPage";
+import BookingPage from "./components/HomePage/Booking/BookingPage";
+import BookingConfirmation from "./components/HomePage/Booking/BookingConfirmation";
 import ExploreRooms from "./components/HomePage/ExploreRooms";
 import InvoiceShow from "./components/Payment/InvoiceViewer";
 import UnauthorizedPage from "./components/HomePage/UnauthorizedPage";
@@ -48,10 +50,18 @@ const App = () => {
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/landing" element={<LandingPage />} />
           <Route path="/book" element={<BookingPage />} />
+          <Route path="/booking-confirmation" element={<BookingConfirmation />} />
           <Route path="/explore" element={<ExploreRooms />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/signup" element={<SignupForm />} />
           <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+                    {/* Guest Protected Route */}
+          <Route path="/landing" element={
+            <GuestProtectedRoute>
+              <LandingPage />
+            </GuestProtectedRoute>
+          } />
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute allowedRoles={['admin', 'staff']} />}>

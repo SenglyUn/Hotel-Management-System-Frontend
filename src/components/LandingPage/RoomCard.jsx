@@ -9,11 +9,33 @@ const RoomCard = ({ room, startDate, endDate, isLoggedIn }) => {
 
   const handleBookNow = () => {
     if (!isLoggedIn) {
-      navigate('/auth', { state: { from: window.location.pathname } });
+      // Redirect to login with return URL to continue booking process
+      navigate('/auth', { 
+        state: { 
+          from: '/booking',
+          roomData: {
+            room: room,
+            checkIn: startDate,
+            checkOut: endDate
+          }
+        } 
+      });
       return;
     }
 
-    navigate('/booking', {
+    // If user is logged in, proceed to booking
+    navigate('/book', {
+      state: {
+        room: room,
+        checkIn: startDate,
+        checkOut: endDate
+      }
+    });
+  };
+
+  const handleViewDetails = () => {
+    // Navigate to room details page without requiring login
+    navigate(`/room/${room.id}`, {
       state: {
         room: room,
         checkIn: startDate,
@@ -29,17 +51,15 @@ const RoomCard = ({ room, startDate, endDate, isLoggedIn }) => {
     }
   };
 
-  // Debug: Log the image URL to console
-  console.log('Room image URL:', room.type.image_url);
-
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:scale-105">
       <div className="relative">
         <img 
           src={imgSrc} 
           alt={room.type.name}
-          className="w-full h-48 object-cover"
+          className="w-full h-48 object-cover cursor-pointer"
           onError={handleImageError}
+          onClick={handleViewDetails}
         />
         <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-sm">
           {room.status || 'Available'}
@@ -47,12 +67,17 @@ const RoomCard = ({ room, startDate, endDate, isLoggedIn }) => {
       </div>
       
       <div className="p-4">
-        <h3 className="text-xl font-semibold text-gray-800">{room.type.name}</h3>
+        <h3 
+          className="text-xl font-semibold text-gray-800 cursor-pointer hover:text-blue-600"
+          onClick={handleViewDetails}
+        >
+          {room.type.name}
+        </h3>
         <p className="text-gray-600 mt-1">Room {room.room_number}</p>
         <p className="text-gray-600">Floor {room.floor}</p>
         
         <div className="mt-3">
-          <p className="text-gray-700">{room.type.description}</p>
+          <p className="text-gray-700 line-clamp-2">{room.type.description}</p>
           <p className="text-gray-600 mt-1">Capacity: {room.type.capacity} people</p>
         </div>
         
@@ -64,12 +89,20 @@ const RoomCard = ({ room, startDate, endDate, isLoggedIn }) => {
             <p className="text-gray-500 text-sm">per night</p>
           </div>
           
-          <button
-            onClick={handleBookNow}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition"
-          >
-            Book Now
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleViewDetails}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded transition"
+            >
+              View Details
+            </button>
+            <button
+              onClick={handleBookNow}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition"
+            >
+              Book Now
+            </button>
+          </div>
         </div>
       </div>
     </div>
