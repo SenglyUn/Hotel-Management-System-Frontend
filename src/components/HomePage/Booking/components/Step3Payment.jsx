@@ -1,10 +1,14 @@
 // src/components/HomePage/Booking/components/Step3Payment.jsx
-import React from 'react';
-import { FiCreditCard } from 'react-icons/fi';
+import React, { useState } from 'react';
+import { FiCreditCard, FiCheckCircle } from 'react-icons/fi';
+import BookingSummary from './BookingSummary';
 
 const inputClasses = 'w-full h-[42px] px-3 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
 
-const Step3Payment = ({ bookingData, updateBookingData, loading, onPreviousStep, onBooking }) => {
+const Step3Payment = ({ bookingData, updateBookingData, loading, onPreviousStep, onBooking, total }) => {
+  const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [confirmationNumber, setConfirmationNumber] = useState('');
+
   const handlePaymentMethodChange = (e) => {
     const { name, value } = e.target;
     updateBookingData({ [name]: value });
@@ -20,10 +24,82 @@ const Step3Payment = ({ bookingData, updateBookingData, loading, onPreviousStep,
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onBooking();
+    
+    try {
+      // Call the onBooking function which should return a promise
+      const result = await onBooking();
+      
+      // If booking is successful, show confirmation
+      if (result && result.success) {
+        setBookingConfirmed(true);
+        // Generate a random confirmation number (in a real app, this would come from the server)
+        setConfirmationNumber('BK' + Math.floor(100000 + Math.random() * 900000));
+      }
+    } catch (error) {
+      console.error('Booking failed:', error);
+      // Handle booking failure (show error message, etc.)
+    }
   };
+
+  if (bookingConfirmed) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="text-center py-8">
+          <FiCheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Booking Confirmed!</h2>
+          <p className="text-gray-600 mb-6">Your reservation has been successfully confirmed.</p>
+          <div className="bg-blue-50 p-4 rounded-md mb-6 inline-block">
+            <p className="text-sm text-gray-600">Confirmation Number</p>
+            <p className="text-xl font-bold text-blue-700">{confirmationNumber}</p>
+          </div>
+        </div>
+
+        {/* Booking Summary */}
+        <div className="border-t border-gray-200 pt-6">
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">Booking Summary</h3>
+          <div className="bg-gray-50 p-4 rounded-md">
+            <BookingSummary bookingData={bookingData} total={total} />
+            
+            {/* Payment Information */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h4 className="text-sm font-semibold mb-3 text-gray-800">Payment Information</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-600">Payment Method:</p>
+                  <p className="font-medium">
+                    {bookingData.paymentMethod === 'credit_card' && 'Credit Card'}
+                    {bookingData.paymentMethod === 'paypal' && 'PayPal'}
+                    {bookingData.paymentMethod === 'cash' && 'Pay at Hotel'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Status:</p>
+                  <p className="font-medium text-green-600">Paid</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => window.print()}
+            className="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition text-sm font-medium mr-4"
+          >
+            Print Receipt
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm font-medium"
+          >
+            Book Another Room
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6">

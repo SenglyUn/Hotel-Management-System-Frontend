@@ -5,7 +5,6 @@ import { useAuth } from '../../../context/AuthContext';
 
 const API_BASE_URL = 'http://localhost:5000';
 
-// Named export (keep this if you want to use import { useBooking })
 export const useBooking = (location, navigate) => {
   const { user: authUser, logout } = useAuth();
   const [bookingData, setBookingData] = useState({
@@ -72,14 +71,16 @@ export const useBooking = (location, navigate) => {
     const nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
     
     const roomPrice = bookingData.room.type?.base_price || bookingData.room.base_price || 0;
-    const total = roomPrice * nights;
+    const subtotal = roomPrice * nights;
+    const tax = subtotal * 0.12;
+    const total = subtotal + tax;
     
     return {
       nights,
       roomPrice,
-      subtotal: total,
-      tax: total * 0.12,
-      total: total * 1.12
+      subtotal,
+      tax,
+      total
     };
   };
 
@@ -204,6 +205,24 @@ export const useBooking = (location, navigate) => {
 
       if (data.success) {
         toast.success('Booking confirmed successfully!');
+        
+        // Save to localStorage for history
+        const bookingHistory = JSON.parse(localStorage.getItem('bookingHistory') || '[]');
+        const newBooking = {
+          id: data.reservation_id || '#' + Math.random().toString(36).substr(2, 9),
+          timestamp: new Date().toISOString(),
+          ...data,
+          room: bookingData.room,
+          total: calculateTotal(),
+          adults: bookingData.adults,
+          children: bookingData.children,
+          check_in: bookingData.checkIn,
+          check_out: bookingData.checkOut
+        };
+        
+        localStorage.setItem('bookingHistory', JSON.stringify([newBooking, ...bookingHistory]));
+        
+        // Navigate to confirmation page
         navigate('/booking-confirmation', { 
           state: { 
             booking: data,

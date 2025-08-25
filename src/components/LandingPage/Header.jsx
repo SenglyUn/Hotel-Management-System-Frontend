@@ -15,7 +15,8 @@ import {
   FiHeart,
   FiMenu,
   FiX,
-  FiFileText // Added invoice icon
+  FiFileText,
+  FiCalendar // Added calendar icon for bookings
 } from 'react-icons/fi';
 
 const Header = ({ toggleAuthModal, handleLogout }) => {
@@ -81,6 +82,27 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
       setShowMobileMenu(false);
     } catch (error) {
       console.error('Logout error:', error);
+    }
+  };
+
+  // Function to handle navigation to booking history
+  const handleViewBookingHistory = () => {
+    setShowDropdown(false);
+    setShowMobileMenu(false);
+    navigate('/booking-history');
+  };
+
+  // Function to handle navigation to specific booking confirmation
+  const handleViewInvoice = (bookingId = null) => {
+    setShowDropdown(false);
+    setShowMobileMenu(false);
+    
+    if (bookingId) {
+      // Navigate to specific booking confirmation
+      navigate('/booking-confirmation', { state: { bookingId } });
+    } else {
+      // Navigate to booking history to select a booking
+      navigate('/booking-history');
     }
   };
 
@@ -240,11 +262,18 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
                       Profile
                     </button>
                     <button 
-                      onClick={() => handlePageNavigation('/bookings', 'bookings')}
+                      onClick={handleViewBookingHistory}
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                     >
-                      <FiBookmark className="h-4 w-4 mr-3" />
+                      <FiCalendar className="h-4 w-4 mr-3" />
                       My Bookings
+                    </button>
+                    <button 
+                      onClick={() => handleViewInvoice()}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <FiFileText className="h-4 w-4 mr-3" />
+                      My Invoices
                     </button>
                     <button 
                       onClick={() => handlePageNavigation('/wishlist', 'wishlist')}
@@ -252,14 +281,6 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
                     >
                       <FiHeart className="h-4 w-4 mr-3" />
                       Wishlist
-                    </button>
-                    {/* Add Invoice/Booking Confirmation Link */}
-                    <button 
-                      onClick={() => handlePageNavigation('/booking-confirmation', 'invoice')}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      <FiFileText className="h-4 w-4 mr-3" />
-                      My Invoices
                     </button>
                   </div>
                   
@@ -349,11 +370,18 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
                     Profile
                   </button>
                   <button 
-                    onClick={() => handlePageNavigation('/bookings', 'bookings')}
+                    onClick={handleViewBookingHistory}
                     className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
                   >
-                    <FiBookmark className="inline mr-2 h-4 w-4" />
+                    <FiCalendar className="inline mr-2 h-4 w-4" />
                     My Bookings
+                  </button>
+                  <button 
+                    onClick={() => handleViewInvoice()}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <FiFileText className="inline mr-2 h-4 w-4" />
+                    My Invoices
                   </button>
                   <button 
                     onClick={() => handlePageNavigation('/wishlist', 'wishlist')}
@@ -361,14 +389,6 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
                   >
                     <FiHeart className="inline mr-2 h-4 w-4" />
                     Wishlist
-                  </button>
-                  {/* Add Invoice/Booking Confirmation Link for Mobile */}
-                  <button 
-                    onClick={() => handlePageNavigation('/booking-confirmation', 'invoice')}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
-                  >
-                    <FiFileText className="inline mr-2 h-4 w-4" />
-                    My Invoices
                   </button>
                   <button 
                     onClick={handleLogoutClick}
@@ -401,6 +421,9 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
           </div>
         </div>
       )}
+
+      {/* Add a spacer to prevent content from being hidden behind fixed header */}
+      <div className="h-16"></div>
     </>
   );
 };

@@ -28,7 +28,8 @@ import ParkingManagement from "./components/Parking/ParkingManagement";
 import SettingsPage from "./components/Setting/SettingsPage";
 import ReservationList from "./components/Reservation/ReservationList";
 import BookingPage from "./components/HomePage/Booking/BookingPage";
-import BookingConfirmation from "./components/HomePage/Booking/BookingConfirmation";
+import BookingConfirmation from './components/HomePage/Booking/BookingConfirmation';
+import BookingHistory from './components/HomePage/Booking/components/BookingHistory';
 import ExploreRooms from "./components/HomePage/ExploreRooms";
 import InvoiceShow from "./components/Payment/InvoiceViewer";
 import UnauthorizedPage from "./components/HomePage/UnauthorizedPage";
@@ -51,6 +52,7 @@ const App = () => {
           <Route path="/landing" element={<LandingPage />} />
           <Route path="/book" element={<BookingPage />} />
           <Route path="/booking-confirmation" element={<BookingConfirmation />} />
+          <Route path="/booking-history" element={<BookingHistory />} />
           <Route path="/explore" element={<ExploreRooms />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/signup" element={<SignupForm />} />
