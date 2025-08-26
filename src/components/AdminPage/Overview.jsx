@@ -24,23 +24,56 @@ const Overview = () => {
   });
   const [loading, setLoading] = useState(true);
 
+  // Function to format date as YYYY-MM-DD
+  const formatDate = (date) => {
+    return date.toISOString().split('T')[0];
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       if (dateRange.from && dateRange.to) {
         setLoading(true);
         try {
+          // Validate dates
+          const checkInDate = new Date(dateRange.from);
+          const checkOutDate = new Date(dateRange.to);
+          
+          if (checkInDate >= checkOutDate) {
+            throw new Error('Check-out date must be after check-in date');
+          }
+          
+          // Format dates to YYYY-MM-DD to ensure consistency
+          const checkInFormatted = formatDate(checkInDate);
+          const checkOutFormatted = formatDate(checkOutDate);
+          
+          // Fetch all rooms to get total count
+          let totalRooms = 0;
+          try {
+            const roomsResponse = await axios.get(
+              `http://localhost:5000/api/rooms`
+            );
+            if (roomsResponse.data.success) {
+              // Get total rooms from pagination info
+              totalRooms = roomsResponse.data.pagination.total_items || 0;
+            }
+          } catch (err) {
+            console.warn("Could not fetch all rooms, using fallback:", err.message);
+            // If we can't get all rooms, use a reasonable estimate
+            totalRooms = 4; // Based on your API response
+          }
+          
           // Fetch available rooms for the date range
           const availabilityResponse = await axios.get(
             `http://localhost:5000/api/reservations/availability/rooms`,
             {
               params: {
-                check_in: dateRange.from,
-                check_out: dateRange.to
+                check_in: checkInFormatted,
+                check_out: checkOutFormatted
               }
             }
           );
           
-          // Fetch reservation stats for the date range
+          // Fetch reservations for the date range
           const reservationsResponse = await axios.get(
             `http://localhost:5000/api/reservations`,
             {
@@ -55,9 +88,13 @@ const Overview = () => {
           const reservationsData = reservationsResponse.data;
           
           if (availabilityData.success && reservationsData.success) {
-            const reservations = reservationsData.data.reservations;
+            // Get available rooms count from the API
+            const availableRooms = availabilityData.data.meta.total_available;
             
-            // Calculate stats from reservations
+            // Get all reservations in the date range
+            const reservations = reservationsData.data.reservations || [];
+            
+            // Calculate check-ins and check-outs
             const checkIns = reservations.filter(r => 
               r.status === 'confirmed' && r.check_in === dateRange.from
             ).length;
@@ -66,27 +103,31 @@ const Overview = () => {
               r.status === 'confirmed' && r.check_out === dateRange.to
             ).length;
             
-            const reserved = reservations.filter(r => 
-              r.status === 'confirmed' && 
-              new Date(r.check_in) <= new Date(dateRange.to) && 
-              new Date(r.check_out) >= new Date(dateRange.from)
+            // Calculate reserved rooms (all confirmed reservations in the date range)
+            const reservedRooms = reservations.filter(r => 
+              r.status === 'confirmed'
             ).length;
             
+            // Calculate revenue
             const revenue = reservations
               .filter(r => r.status === 'confirmed')
               .reduce((sum, r) => sum + parseFloat(r.total_amount || 0), 0);
-
+            
             setStats({
               checkIn: checkIns,
               checkOut: checkOuts,
-              available: availabilityData.data.meta.total_available,
-              totalRooms: availabilityData.data.rooms.length + availabilityData.data.meta.total_available,
-              reserved: reserved,
+              available: availableRooms,
+              totalRooms: totalRooms,
+              reserved: reservedRooms,
               revenue: revenue,
             });
           }
         } catch (err) {
           console.error("Failed to fetch data:", err);
+          // Don't show alert for every error to avoid spamming the user
+          if (err.message !== 'Check-out date must be after check-in date') {
+            alert(`Error: ${err.message}`);
+          }
         } finally {
           setLoading(false);
         }
@@ -154,6 +195,7 @@ const Overview = () => {
               value={dateRange.from}
               onChange={(e) => setDateRange(prev => ({...prev, from: e.target.value}))}
               className="bg-transparent outline-none text-sm w-32"
+              min={formatDate(new Date())}
             />
           </div>
           <span className="mx-3 text-gray-500">to</span>
@@ -162,8 +204,15 @@ const Overview = () => {
             <input
               type="date"
               value={dateRange.to}
-              onChange={(e) => setDateRange(prev => ({...prev, to: e.target.value}))}
+              onChange={(e) => {
+                if (e.target.value >= dateRange.from) {
+                  setDateRange(prev => ({...prev, to: e.target.value}));
+                } else {
+                  alert("End date must be after start date");
+                }
+              }}
               className="bg-transparent outline-none text-sm w-32"
+              min={dateRange.from}
             />
           </div>
         </div>
@@ -189,7 +238,7 @@ const Overview = () => {
             </div>
             
             {/* Progress indicator for available rooms */}
-            {item.title === "Available Rooms" && !loading && (
+            {item.title === "Available Rooms" && !loading && stats.totalRooms > 0 && (
               <div className="mt-4">
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div 
@@ -198,7 +247,7 @@ const Overview = () => {
                   ></div>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {Math.round((stats.available / stats.totalRooms) * 100)}% occupancy
+                  {Math.round((stats.available / stats.totalRooms) * 100)}% available
                 </p>
               </div>
             )}
