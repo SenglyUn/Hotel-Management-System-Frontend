@@ -9,7 +9,8 @@ import {
   FiChevronDown,
   FiX,
   FiEye,
-  FiAlertCircle
+  FiAlertCircle,
+  FiRefreshCw
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 
@@ -25,29 +26,59 @@ const Users = () => {
     lastName: "", 
     roleId: 3,
     isActive: true,
-    password: "" // Added password field for new users
+    password: ""
   });
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
 
   const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:5000";
 
-  // Create axios instance with auth header
+  // Create axios instance with proper authentication
   const createApiInstance = () => {
     const instance = axios.create({
       baseURL: API_BASE,
       withCredentials: true,
     });
 
-    // Add auth token to requests
-    const token = localStorage.getItem('token');
+    // Get token from cookies or localStorage
+    const token = getTokenFromCookies() || localStorage.getItem('token');
+    
     if (token) {
       instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
 
+    // Add response interceptor to handle auth errors
+    instance.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          setError("Authentication failed. Please log in again.");
+          setTimeout(() => {
+            logout();
+            window.location.href = '/login';
+          }, 2000);
+        }
+        return Promise.reject(error);
+      }
+    );
+
     return instance;
+  };
+
+  // Helper function to get token from cookies
+  const getTokenFromCookies = () => {
+    const cookieName = 'jwt';
+    const cookieArray = document.cookie.split(';');
+    for (let i = 0; i < cookieArray.length; i++) {
+      const cookie = cookieArray[i].trim();
+      if (cookie.startsWith(`${cookieName}=`)) {
+        return cookie.substring(cookieName.length + 1);
+      }
+    }
+    return null;
   };
 
   useEffect(() => {
@@ -56,7 +87,7 @@ const Users = () => {
     } else {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, retryCount]);
 
   const fetchUsers = async () => {
     try {
@@ -64,6 +95,7 @@ const Users = () => {
       setError(null);
       const api = createApiInstance();
       const response = await api.get("/api/users");
+      
       if (response.data && Array.isArray(response.data.users)) {
         setUsers(response.data.users);
       } else {
@@ -71,11 +103,16 @@ const Users = () => {
       }
     } catch (err) {
       console.error("Fetch users failed", err);
-      if (err.response?.status === 401) {
-        setError("Authentication required. Please log in.");
-        logout();
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        setError("Authentication failed. Please log in again.");
+        setTimeout(() => {
+          logout();
+          window.location.href = '/login';
+        }, 2000);
+      } else if (err.code === 'NETWORK_ERROR' || err.message === 'Network Error') {
+        setError("Network error. Please check your connection and try again.");
       } else {
-        setError("Failed to fetch users. Please check your connection and try again.");
+        setError("Failed to fetch users. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -93,7 +130,7 @@ const Users = () => {
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       console.error("Delete failed", err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError("Authentication required. Please log in again.");
         logout();
       } else {
@@ -113,7 +150,7 @@ const Users = () => {
         lastName: user.lastName || "",
         roleId: user.roleId || 3,
         isActive: user.isActive || true,
-        password: "" // Don't include password when editing
+        password: ""
       });
     } else {
       setEditingId(null);
@@ -124,7 +161,7 @@ const Users = () => {
         lastName: "", 
         roleId: 3,
         isActive: true,
-        password: "" // Include password for new users
+        password: ""
       });
     }
     setIsModalOpen(true);
@@ -142,13 +179,11 @@ const Users = () => {
     e.preventDefault();
     setError(null);
     
-    // Validation
     if (!formData.username || !formData.email) {
       setError("Username and email are required fields");
       return;
     }
     
-    // For new users, password is required
     if (!editingId && !formData.password) {
       setError("Password is required for new users");
       return;
@@ -157,10 +192,8 @@ const Users = () => {
     try {
       const api = createApiInstance();
       
-      // Prepare data for API
       const submitData = { ...formData };
       
-      // Don't send password field when editing (unless it's being changed)
       if (editingId && !submitData.password) {
         delete submitData.password;
       }
@@ -179,14 +212,12 @@ const Users = () => {
     } catch (err) {
       console.error("Submit failed", err);
       
-      // Improved error handling
       if (err.response?.status === 400) {
-        // Server validation error
         const errorMessage = err.response.data?.message || 
                             err.response.data?.error || 
                             "Invalid data. Please check your inputs.";
         setError(errorMessage);
-      } else if (err.response?.status === 401) {
+      } else if (err.response?.status === 401 || err.response?.status === 403) {
         setError("Authentication required. Please log in again.");
         logout();
       } else {
@@ -206,7 +237,12 @@ const Users = () => {
 
   const handleRetry = () => {
     setError(null);
-    fetchUsers();
+    setRetryCount(prev => prev + 1);
+  };
+
+  const handleLogoutAndRedirect = () => {
+    logout();
+    window.location.href = '/login';
   };
 
   const sharedInput = (label, name, value, required = false, type = "text", placeholder = '') => (
@@ -317,14 +353,28 @@ const Users = () => {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
-          <button
-            onClick={handleRetry}
-            className="ml-4 px-3 py-1 bg-red-600 text-white rounded text-sm"
-          >
-            Retry
-          </button>
+        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded flex justify-between items-center">
+          <div className="flex items-center">
+            <FiAlertCircle className="mr-2" />
+            <span>{error}</span>
+          </div>
+          <div className="flex gap-2">
+            {error.includes("Authentication") ? (
+              <button
+                onClick={handleLogoutAndRedirect}
+                className="px-3 py-1 bg-red-600 text-white rounded text-sm"
+              >
+                Login Again
+              </button>
+            ) : (
+              <button
+                onClick={handleRetry}
+                className="px-3 py-1 bg-red-600 text-white rounded text-sm flex items-center"
+              >
+                <FiRefreshCw className="mr-1" /> Retry
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -429,7 +479,6 @@ const Users = () => {
               {sharedInput('First Name', 'firstName', formData.firstName, false)}
               {sharedInput('Last Name', 'lastName', formData.lastName, false)}
               
-              {/* Password field only for new users */}
               {!editingId && sharedInput('Password', 'password', formData.password, true, 'password')}
               
               {sharedSelect('Role', 'roleId', formData.roleId, [

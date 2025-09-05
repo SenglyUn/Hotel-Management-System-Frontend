@@ -1,93 +1,55 @@
 // src/components/AuthModal/AuthModal.js
 import React from 'react';
 import { FaTimes } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
 
-const AuthModal = ({ showAuthModal, authMode, toggleAuthModal, handleAuth }) => {
+const AuthModal = ({ showAuthModal, authMode, toggleAuthModal }) => {
+  const navigate = useNavigate();
+  
   if (!showAuthModal) return null;
+
+  const handleRedirect = () => {
+    toggleAuthModal(); // Close the modal first
+    if (authMode === 'login') {
+      navigate('/login');
+    } else {
+      navigate('/signup');
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white p-8 rounded-lg max-w-md w-full">
+      <div className="bg-white p-8 rounded-lg max-w-md w-full relative">
         <h2 className="text-2xl font-bold mb-6 text-center">
           {authMode === 'login' ? 'Login to Your Account' : 'Create an Account'}
         </h2>
         
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target);
-          const credentials = {
-            email: formData.get('email'),
-            password: formData.get('password')
-          };
-          if (authMode === 'register') {
-            credentials.firstName = formData.get('firstName');
-            credentials.lastName = formData.get('lastName');
-          }
-          handleAuth(credentials, authMode === 'register');
-        }}>
-          {authMode === 'register' && (
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-                <input 
-                  name="firstName"
-                  type="text" 
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                <input 
-                  name="lastName"
-                  type="text" 
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          )}
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input 
-              name="email"
-              type="email" 
-              required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input 
-              name="password"
-              type="password" 
-              required
-              minLength="6"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+        <div className="text-center mb-6">
+          <p className="text-gray-600 mb-4">
+            {authMode === 'login' 
+              ? 'You will be redirected to our login page' 
+              : 'You will be redirected to our registration page'}
+          </p>
           
           <button 
-            type="submit"
-            className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition mb-4"
+            onClick={handleRedirect}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
           >
-            {authMode === 'login' ? 'Login' : 'Register'}
+            {authMode === 'login' ? 'Continue to Login' : 'Continue to Sign Up'}
           </button>
-          
-          <div className="text-center">
-            <button 
-              type="button"
-              onClick={() => toggleAuthModal(authMode === 'login' ? 'register' : 'login')}
-              className="text-blue-600 hover:text-blue-800 text-sm"
-            >
-              {authMode === 'login' 
-                ? "Don't have an account? Register" 
-                : "Already have an account? Login"}
-            </button>
-          </div>
-        </form>
+        </div>
+        
+        <div className="text-center">
+          <button 
+            type="button"
+            onClick={() => toggleAuthModal(authMode === 'login' ? 'register' : 'login')}
+            className="text-blue-600 hover:text-blue-800 text-sm"
+          >
+            {authMode === 'login' 
+              ? "Don't have an account? Register" 
+              : "Already have an account? Login"}
+          </button>
+        </div>
         
         <button 
           onClick={() => toggleAuthModal()}

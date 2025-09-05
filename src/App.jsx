@@ -36,6 +36,7 @@ import UnauthorizedPage from "./components/HomePage/UnauthorizedPage";
 
 // User Management
 import Users from "./components/User Management/Users"; // Add this import
+import Profile from "../src/components/LandingPage/Profile"; // Add this import
 
 // Protected Routes
 import AdminProtectedRoute from "./components/context/AdminProtectedRoute";
@@ -91,6 +92,14 @@ const App = () => {
               <Route path="/invoices/:id" element={<InvoiceShow />} />
             </Route>
           </Route>
+
+
+         {/* Guest Protected Profile Route */}
+          <Route path="/profile" element={
+            <GuestProtectedRoute>
+                <Profile />
+            </GuestProtectedRoute>
+          } />
 
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

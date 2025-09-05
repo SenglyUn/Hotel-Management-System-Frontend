@@ -1,5 +1,5 @@
 // src/components/LandingPage/Header.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -16,8 +16,10 @@ import {
   FiMenu,
   FiX,
   FiFileText,
-  FiCalendar // Added calendar icon for bookings
+  FiCalendar,
+  FiLoader
 } from 'react-icons/fi';
+import axios from 'axios';
 
 const Header = ({ toggleAuthModal, handleLogout }) => {
   const { user: userData, loading: authLoading, logout: authLogout } = useAuth();
@@ -27,8 +29,54 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeNav, setActiveNav] = useState('home');
+  const [profileData, setProfileData] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   const isLoggedIn = !!userData;
+  const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:5000";
+
+  // Create axios instance with proper authentication
+  const createApiInstance = () => {
+    const instance = axios.create({
+      baseURL: API_BASE,
+      withCredentials: true,
+    });
+
+    // Get token from localStorage
+    const token = localStorage.getItem('token');
+    
+    if (token) {
+      instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+
+    return instance;
+  };
+
+  // Fetch user profile data
+  const fetchProfile = async () => {
+    if (!isLoggedIn) return;
+    
+    try {
+      setProfileLoading(true);
+      const api = createApiInstance();
+      const response = await api.get("/api/auth/me");
+      
+      if (response.data) {
+        setProfileData(response.data);
+      }
+    } catch (err) {
+      console.error("Fetch profile failed", err);
+      // Don't show error for header, just fail silently
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchProfile();
+    }
+  }, [isLoggedIn]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -80,6 +128,7 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
       }
       setShowDropdown(false);
       setShowMobileMenu(false);
+      setProfileData(null); // Clear profile data on logout
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -104,6 +153,42 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
       // Navigate to booking history to select a booking
       navigate('/booking-history');
     }
+  };
+
+  // Get user display name with fallbacks
+  const getUserDisplayName = () => {
+    if (profileData?.user?.firstName && profileData?.user?.lastName) {
+      return `${profileData.user.firstName} ${profileData.user.lastName}`;
+    } else if (profileData?.user?.firstName) {
+      return profileData.user.firstName;
+    } else if (userData?.firstName && userData?.lastName) {
+      return `${userData.firstName} ${userData.lastName}`;
+    } else if (userData?.firstName) {
+      return userData.firstName;
+    } else if (userData?.username) {
+      return userData.username;
+    }
+    return 'Guest User';
+  };
+
+  // Get user email with fallback
+  const getUserEmail = () => {
+    return profileData?.user?.email || userData?.email || 'No email';
+  };
+
+  // Get user avatar with fallback
+  const getUserAvatar = () => {
+    return profileData?.profile?.avatar || null;
+  };
+
+  // Get user initials for avatar fallback
+  const getUserInitials = () => {
+    const name = getUserDisplayName();
+    if (name === 'Guest User') return 'G';
+    
+    const names = name.split(' ');
+    if (names.length === 1) return names[0].charAt(0).toUpperCase();
+    return `${names[0].charAt(0).toUpperCase()}${names[names.length - 1].charAt(0).toUpperCase()}`;
   };
 
   // Show loading state while auth is being checked
@@ -223,18 +308,27 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
               className="flex items-center gap-3 bg-gray-100 rounded-full px-3 py-1 cursor-pointer hover:bg-gray-200 transition-colors relative"
               onClick={() => setShowDropdown(!showDropdown)}
             >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-700 flex items-center justify-center">
-                <span className="text-white font-medium text-sm">
-                  {userData?.firstName ? userData.firstName.charAt(0).toUpperCase() : 
-                   userData?.username ? userData.username.charAt(0).toUpperCase() : 'G'}
-                </span>
-              </div>
+              {profileLoading ? (
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                  <FiLoader className="h-4 w-4 text-gray-400 animate-spin" />
+                </div>
+              ) : getUserAvatar() ? (
+                <img
+                  src={getUserAvatar()}
+                  alt="Profile"
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-700 flex items-center justify-center">
+                  <span className="text-white font-medium text-sm">
+                    {getUserInitials()}
+                  </span>
+                </div>
+              )}
               
               <div className="leading-tight hidden md:block">
                 <p className="font-medium text-gray-800 text-sm">
-                  {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 
-                   userData?.firstName ? userData.firstName : 
-                   userData?.username ? userData.username : 'Guest User'}
+                  {getUserDisplayName()}
                 </p>
                 <p className="text-xs text-gray-500 capitalize">
                   {userData?.role || 'guest'}
@@ -245,12 +339,10 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
               {showDropdown && (
                 <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
                   <div className="px-4 py-2 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-900">
-                      {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 
-                       userData?.firstName ? userData.firstName : 
-                       userData?.username ? userData.username : 'Guest User'}
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {getUserDisplayName()}
                     </p>
-                    <p className="text-xs text-gray-500 truncate">{userData?.email || 'No email'}</p>
+                    <p className="text-xs text-gray-500 truncate">{getUserEmail()}</p>
                   </div>
                   
                   <div className="py-2">
@@ -406,7 +498,7 @@ const Header = ({ toggleAuthModal, handleLogout }) => {
                   <button 
                     onClick={() => toggleAuthModal ? toggleAuthModal('login') : handlePageNavigation('/login', 'login')}
                     className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
-                  >
+                    >
                     Login
                   </button>
                   <button 
